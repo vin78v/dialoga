@@ -1,0 +1,51 @@
+{
+  "realm": "dialoga",
+  "enabled": true,
+  "registrationAllowed": false,
+  "clients": [
+    {
+      "clientId": "dialoga-test-cli",
+      "name": "Dialoga local test client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "defaultClientScopes": [
+        "profile",
+        "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "dialoga-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "dialoga-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "dialoga-test",
+      "enabled": true,
+      "email": "dialoga-test@example.test",
+      "emailVerified": true,
+      "firstName": "Dialoga",
+      "lastName": "Test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dialoga-local-password",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+spring:
+  datasource:
+    url: ${DIALOGA_DB_URL:jdbc:postgresql://localhost:5432/dialoga}
+    username: ${DIALOGA_DB_USERNAME:dialoga_app}
+    password: ${DIALOGA_DB_PASSWORD:}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${DIALOGA_OIDC_ISSUER:http://localhost:8081/realms/dialoga}
+          audiences:
+            - ${DIALOGA_API_AUDIENCE:dialoga-api}
+server:
+  error:
+    include-message: never
+
+dialoga:
+  security:
+    console-origins: ${DIALOGA_CONSOLE_ORIGINS:http://localhost:5173}
