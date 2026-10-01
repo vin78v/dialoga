@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dialoga
+      POSTGRES_USER: dialoga_migration
+      POSTGRES_PASSWORD: dialoga_local_admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - dialoga_db:/var/lib/postgresql/data
+      - ./db-reference/V1__dialoga_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db-reference/V3__optional_tenant_rls.sql:/docker-entrypoint-initdb.d/02-rls.sql:ro
+      - ./src/main/resources/db/migration/V4__project_user_permission.sql:/docker-entrypoint-initdb.d/03-sensitive-permissions.sql:ro
+      - ./db-reference/04-create-local-app-role.sql:/docker-entrypoint-initdb.d/04-app-role.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dialoga_migration -d dialoga"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: dialoga-admin-local
+      KC_HOSTNAME: http://keycloak:8080
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/realm-dialoga.json:/opt/keycloak/data/import/realm-dialoga.json:ro
+
+  backend:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    environment:
+      DIALOGA_DB_URL: jdbc:postgresql://db:5432/dialoga
+      DIALOGA_DB_USERNAME: dialoga_app
+      DIALOGA_DB_PASSWORD: dialoga_local_app
+      DIALOGA_OIDC_ISSUER: http://keycloak:8080/realms/dialoga
+      DIALOGA_API_AUDIENCE: dialoga-api
+      DIALOGA_CONSOLE_ORIGINS: http://localhost:5173
+    ports:
+      - "8080:8080"
+
+volumes:
+  dialoga_db:
