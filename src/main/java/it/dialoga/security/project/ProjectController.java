@@ -32,5 +32,21 @@ public class ProjectController {
         return ResponseEntity.created(URI.create("/api/organizations/" + organizationId + "/projects/" + project.id())).body(project);
     }
 
+    // Il payload espone soltanto i metadati modificabili: tenant, slug e stato
+    // restano sotto il controllo del server.
+    @PutMapping("/{projectId}")
+    public ProjectService.Project update(@AuthenticationPrincipal DialogaUser actor,
+            @PathVariable UUID organizationId, @PathVariable UUID projectId, @RequestBody UpdateProject request) {
+        return projects.update(actor, organizationId, projectId, request.name(), request.description());
+    }
+
+    @PostMapping("/{projectId}/archive")
+    public ResponseEntity<Void> archive(@AuthenticationPrincipal DialogaUser actor,
+            @PathVariable UUID organizationId, @PathVariable UUID projectId) {
+        projects.archive(actor, organizationId, projectId);
+        return ResponseEntity.noContent().build();
+    }
+
+    public record UpdateProject(String name, String description) { }
     public record CreateProject(String name, String slug, String description) { }
 }

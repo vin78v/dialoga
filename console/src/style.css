@@ -399,3 +399,6 @@ h2 {
 .project-members-panel select:focus-visible { outline: 2px solid #315e4e; outline-offset: 2px; }
 .assignment-actions { display: flex; flex-wrap: wrap; gap: 8px 18px; }
 .remove-access { padding: 14px; border: 1px solid #d8cbb5; border-radius: 8px; margin: 18px 0; background: #fbf7ef; overflow-wrap: anywhere; }
+
+.project-actions { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e1e6dc; }
+.project-actions h6 { margin: 0 0 16px; font-size: 1rem; }

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SessionExpired } from './auth';
+import { ProjectActions } from './ProjectActions';
 import { ProjectMembersPanel } from './ProjectMembersPanel';
 import { suggestedSlug, type Organization } from './organizations';
 import { createProject, getProject, listProjects, ProjectError, type Project } from './projects';
 import { clearRequestedProject, requestedProject, workspaceHash, workspaceRoute } from './workspace';
 
 export function ProjectsPanel({ organization, onExpired }: { organization: Organization; onExpired: () => void }) {
+  const [notice, setNotice] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [listAttempt, setListAttempt] = useState(0);
@@ -73,7 +75,7 @@ export function ProjectsPanel({ organization, onExpired }: { organization: Organ
   }, [organization.id, selectedId, detailAttempt]);
 
   function open(id: string) {
-    setCreating(false); setSelectedId(id);
+    setNotice(null); setCreating(false); setSelectedId(id);
     window.location.hash = workspaceHash(organization.id, id);
   }
   function back() {
@@ -105,12 +107,25 @@ export function ProjectsPanel({ organization, onExpired }: { organization: Organ
   }
 
   return <section className="projects-panel" aria-labelledby="projects-title">
+    {notice && <p role="status">{notice}</p>}
     <div className="projects-heading"><h4 id="projects-title">Progetti</h4>{!selectedId && !creating && canCreate && projects && <button className="compact-button" onClick={() => { setCreating(true); setFormError(null); }}>Nuovo progetto</button>}</div>
     {selectedId ? <>
       <button className="text-button" onClick={back}>← Torna ai progetti</button>
       {detailError ? <><p className="notice" role="alert">{detailError}</p><button className="secondary" onClick={() => setDetailAttempt(n => n + 1)}>Ricarica progetto</button></> : detail ? <article className="project-detail" aria-labelledby="project-name">
         <span className="status-pill">Attivo</span><h5 id="project-name">{detail.name}</h5>
         <dl><dt>Indirizzo del progetto</dt><dd>{detail.slug}</dd><dt>Descrizione</dt><dd className="project-description">{detail.description || 'Nessuna descrizione.'}</dd></dl>
+        {canCreate && <ProjectActions key={detail.id} project={detail} onExpired={onExpired}
+          onUpdated={updated => {
+            setDetail(updated); setProjects(previous => previous?.map(item => item.id === updated.id ? updated : item) || null);
+            // Rileggere invalida anche una lista partita prima del salvataggio.
+            setListAttempt(n => n + 1);
+          }}
+          onArchived={() => {
+            // Invalidiamo anche l'elenco: nessuna scheda attiva deve sopravvivere
+            // all'archiviazione, neppure se la lista iniziale era ancora in volo.
+            setDetail(null); back(); setListAttempt(n => n + 1); setNotice('Progetto archiviato. I dati sono stati conservati.');
+          }}
+          onUnavailable={message => { setDetail(null); setDetailError(message); setListAttempt(n => n + 1); }} />}
         <ProjectMembersPanel key={detail.id} organization={organization} projectId={detail.id} onExpired={onExpired} />
       </article> : <p role="status">Caricamento del progetto…</p>}
     </> : listError ? <><p className="notice" role="alert">{listError}</p><button className="secondary" onClick={() => setListAttempt(n => n + 1)}>Ricarica progetti</button></> : projects === null ? <p role="status">Caricamento dei progetti…</p> : <>

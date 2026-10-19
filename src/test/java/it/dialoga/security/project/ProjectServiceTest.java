@@ -26,4 +26,17 @@ class ProjectServiceTest {
                 () -> service.create(actor, org, "Name", "slug", "x".repeat(2001))).getStatusCode().value());
         verifyNoInteractions(jdbc);
     }
+    @Test void invalidMetadataUpdateDoesNotReachDatabase() {
+        var jdbc = mock(JdbcTemplate.class);
+        var service = new ProjectService(jdbc);
+        var actor = new DialogaUser(UUID.randomUUID(), "test@example.test", null, null);
+        for (String name : new String[] {null, "", " ", "x".repeat(161)}) {
+            assertEquals(400, assertThrows(ResponseStatusException.class,
+                    () -> service.update(actor, UUID.randomUUID(), UUID.randomUUID(), name, null)).getStatusCode().value());
+        }
+        assertEquals(400, assertThrows(ResponseStatusException.class,
+                () -> service.update(actor, UUID.randomUUID(), UUID.randomUUID(), "Name", "x".repeat(2001))).getStatusCode().value());
+        verifyNoInteractions(jdbc);
+    }
+
 }

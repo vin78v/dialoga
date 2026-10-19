@@ -72,6 +72,53 @@ public class ProjectService {
         return new Project(id, organizationId, name.strip(), slug, cleanedDescription, "ACTIVE");
     }
 
+    /** Lo slug rimane stabile: cambiare i metadati non modifica gli indirizzi esistenti. */
+    @Transactional
+    public Project update(DialogaUser actor, UUID organizationId, UUID projectId, String name, String description) {
+        if (name == null || name.isBlank() || name.strip().length() > 160) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Name must contain 1 to 160 characters");
+        }
+        if (description != null && description.length() > 2000) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Description must contain at most 2000 characters");
+        }
+        requireAdministrator(actor, organizationId);
+        // Il filtro ACTIVE impedisce a una modifica tardiva di riattivare un archivio.
+        var rows = jdbc.query("""
+                UPDATE dialoga.project SET name = ?, description = ?
+                WHERE organization_id = ? AND id = ? AND status = 'ACTIVE'
+                RETURNING id, organization_id, name, slug, description, status
+                """, this::map, name.strip(), description == null || description.isBlank() ? null : description.strip(),
+                organizationId, projectId);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
+        return rows.get(0);
+    }
+
+    @Transactional
+    public void archive(DialogaUser actor, UUID organizationId, UUID projectId) {
+        requireAdministrator(actor, organizationId);
+        // Soft archive: nessuna cancellazione di dati o assegnazioni. Le letture e
+        // la policy esistenti richiedono ACTIVE e negano quindi ogni nuovo accesso.
+        // Includere ARCHIVED rende sicuro ripetere la richiesta dopo una risposta persa.
+        int matched = jdbc.update("""
+                UPDATE dialoga.project SET status = 'ARCHIVED'
+                WHERE organization_id = ? AND id = ? AND status IN ('ACTIVE', 'ARCHIVED')
+                """, organizationId, projectId);
+        if (matched == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
+    }
+
+    private void requireAdministrator(DialogaUser actor, UUID organizationId) {
+        jdbc.queryForObject("SELECT set_config('app.organization_id', ?, true)", String.class, organizationId.toString());
+        // Stesso ordine degli accessi ai membri: prima l'organizzazione, poi il
+        // progetto. Il lock mantiene validi stato e permessi fino al commit.
+        if (jdbc.queryForList("SELECT id FROM dialoga.organization WHERE id = ? AND status = 'ACTIVE' FOR UPDATE", UUID.class, organizationId).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Organization not found");
+        }
+        String role = requireOrganization(actor, organizationId, true);
+        if (!"OWNER".equals(role) && !"ADMIN".equals(role)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Organization owner or admin required");
+        }
+    }
+
     private String requireOrganization(DialogaUser actor, UUID organizationId, boolean lock) {
         jdbc.queryForObject("SELECT set_config('app.organization_id', ?, true)", String.class, organizationId.toString());
         List<String> roles = jdbc.queryForList("""

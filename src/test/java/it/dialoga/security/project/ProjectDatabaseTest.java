@@ -176,4 +176,99 @@ class ProjectDatabaseTest {
         }
         assertEquals(1, projects.list(owner, org).size());
     }
+    @Test void metadataUpdatePreservesSlugAndNormalizesDescription() {
+        var original = create("stable-address");
+        var updated = projects.update(owner, org, original.id(), "  New name  ", "  New description  ");
+        assertEquals("New name", updated.name());
+        assertEquals("New description", updated.description());
+        assertEquals(original.slug(), updated.slug());
+        assertEquals(original.id(), updated.id());
+        assertEquals(updated, projects.get(owner, org, original.id()));
+        assertEquals(List.of(updated), projects.list(owner, org));
+        assertNull(projects.update(owner, org, original.id(), "New name", "  ").description());
+    }
+    @Test void onlyOrganizationAdministratorsCanUpdateOrArchive() {
+        var project = create("managed");
+        inTenant(org, () -> jdbc.update("INSERT INTO dialoga.project_membership (organization_id, project_id, user_id, role) VALUES (?, ?, ?, 'MANAGER')", org, project.id(), member.id()));
+        status(403, () -> projects.update(member, org, project.id(), "Denied", null));
+        status(403, () -> projects.archive(member, org, project.id()));
+        assertEquals(project, projects.get(owner, org, project.id()));
+        inTenant(org, () -> jdbc.update("UPDATE dialoga.organization_membership SET role = 'ADMIN' WHERE organization_id = ? AND user_id = ?", org, member.id()));
+        assertEquals("Admin edit", projects.update(member, org, project.id(), "Admin edit", null).name());
+        projects.archive(member, org, project.id());
+        status(404, () -> projects.get(owner, org, project.id()));
+    }
+    @Test void mutationsCannotCrossOrganizationBoundariesOrRevealProjectsToOutsiders() {
+        var project = create("private-mutation");
+        var otherOrg = organization();
+        status(404, () -> projects.update(owner, otherOrg, project.id(), "Denied", null));
+        status(404, () -> projects.archive(owner, otherOrg, project.id()));
+        status(404, () -> projects.update(outsider, org, project.id(), "Denied", null));
+        status(404, () -> projects.archive(outsider, org, project.id()));
+        status(404, () -> projects.archive(owner, org, UUID.randomUUID()));
+        assertEquals(project, projects.get(owner, org, project.id()));
+    }
+    @Test void inactiveActorsAndOrganizationsCannotMutate() {
+        var project = create("inactive-mutation");
+        inTenant(org, () -> jdbc.update("UPDATE dialoga.organization_membership SET role = 'ADMIN' WHERE organization_id = ? AND user_id = ?", org, member.id()));
+        inTenant(org, () -> jdbc.update("UPDATE dialoga.organization_membership SET status = 'SUSPENDED' WHERE organization_id = ? AND user_id = ?", org, member.id()));
+        status(404, () -> projects.update(member, org, project.id(), "Denied", null));
+        status(404, () -> projects.archive(member, org, project.id()));
+        inTenant(org, () -> jdbc.update("UPDATE dialoga.organization_membership SET status = 'ACTIVE' WHERE organization_id = ? AND user_id = ?", org, member.id()));
+        jdbc.update("UPDATE dialoga.app_user SET status = 'SUSPENDED' WHERE id = ?", member.id());
+        status(404, () -> projects.update(member, org, project.id(), "Denied", null));
+        status(404, () -> projects.archive(member, org, project.id()));
+        jdbc.update("UPDATE dialoga.app_user SET status = 'ACTIVE' WHERE id = ?", member.id());
+        inTenant(org, () -> jdbc.update("UPDATE dialoga.organization SET status = 'SUSPENDED' WHERE id = ?", org));
+        status(404, () -> projects.update(member, org, project.id(), "Denied", null));
+        status(404, () -> projects.archive(member, org, project.id()));
+    }
+    @Test void archiveIsIdempotentPreservesRowsAndBlocksReadsAndPolicy() {
+        var project = create("soft-archive");
+        var sibling = create("still-active");
+        inTenant(org, () -> jdbc.update("INSERT INTO dialoga.project_membership (organization_id, project_id, user_id, role) VALUES (?, ?, ?, 'VIEWER')", org, project.id(), member.id()));
+        projects.archive(owner, org, project.id());
+        projects.archive(owner, org, project.id());
+        assertEquals(List.of(sibling), projects.list(owner, org));
+        assertTrue(projects.list(member, org).isEmpty());
+        status(404, () -> projects.get(owner, org, project.id()));
+        status(404, () -> projects.get(member, org, project.id()));
+        status(404, () -> projects.update(owner, org, project.id(), "Cannot restore", null));
+        status(409, () -> create("soft-archive"));
+        inTenant(org, () -> {
+            assertEquals("ARCHIVED", jdbc.queryForObject("SELECT status FROM dialoga.project WHERE id = ?", String.class, project.id()));
+            assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM dialoga.project_membership WHERE project_id = ? AND status = 'ACTIVE'", Integer.class, project.id()));
+            var policy = new it.dialoga.security.authorization.ProjectAuthorizationService(jdbc);
+            for (var actor : List.of(owner, member)) assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                    () -> policy.require(actor, org, project.id(), it.dialoga.security.authorization.ProjectAction.VIEW));
+        });
+    }
+    @Test void updateAndArchiveParticipateInRollback() {
+        var project = create("mutation-rollback");
+        assertThrows(IllegalStateException.class, () -> transactions.executeWithoutResult(tx -> {
+            projects.update(owner, org, project.id(), "Uncommitted", null);
+            projects.archive(owner, org, project.id());
+            throw new IllegalStateException("Injected failure");
+        }));
+        assertEquals(project, projects.get(owner, org, project.id()));
+    }
+    @Test void concurrentUpdateAndArchiveNeverRestoreArchivedProject() throws Exception {
+        var project = create("concurrent-archive");
+        var gate = new CountDownLatch(1);
+        Callable<Integer> update = () -> {
+            gate.await();
+            try { projects.update(owner, org, project.id(), "Concurrent name", null); return 200; }
+            catch (ResponseStatusException e) { return e.getStatusCode().value(); }
+        };
+        Callable<Integer> archive = () -> { gate.await(); projects.archive(owner, org, project.id()); return 204; };
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var editing = pool.submit(update); var archiving = pool.submit(archive); gate.countDown();
+            assertTrue(Set.of(200, 404).contains(editing.get(10, TimeUnit.SECONDS)));
+            assertEquals(204, archiving.get(10, TimeUnit.SECONDS));
+        }
+        assertTrue(projects.list(owner, org).isEmpty());
+        status(404, () -> projects.get(owner, org, project.id()));
+        projects.archive(owner, org, project.id());
+    }
+
 }
