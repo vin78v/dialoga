@@ -31,7 +31,7 @@ mvn spring-boot:run
 
 ## Limiti attuali
 
-Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione e dettaglio dei progetti; non include ancora inviti o gestione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
+Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione e dettaglio dei progetti; include elenco dei membri e inviti con accettazione; non include ancora modifica o sospensione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
 
 ## Riferimenti
 
@@ -143,7 +143,7 @@ V5 fissa il `search_path` dei trigger di membership e vincolo OWNER, mantenendo 
 
 ### Test PostgreSQL dell’onboarding e dei progetti e dei progetti
 
-`mvn verify` esegue i test unitari; i 15 test PostgreSQL (5 in `OrganizationDatabaseTest` e 10 in `ProjectDatabaseTest`) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
+`mvn verify` esegue i test unitari; i 31 test PostgreSQL (5 organizzazioni, 10 progetti e 16 team/inviti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
 
 ```sh
 docker compose exec -T db createdb -U dialoga_migration dialoga_onboarding_test
@@ -193,4 +193,28 @@ La risposta contiene `id`, `organizationId`, `name`, `slug`, `description` e `st
 
 Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. I progetti archiviati non sono elencati né aperti da queste API.
 
-Questa versione include elenco, creazione e dettaglio, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Modifica, archiviazione e assegnazione dei membri non sono ancora esposte nell’interfaccia. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 22 test senza skip; senza database esegue 7 test e salta le 15 prove PostgreSQL.
+Questa versione include elenco, creazione e dettaglio, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Modifica, archiviazione e assegnazione dei membri non sono ancora esposte nell’interfaccia. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 43 test senza skip; senza database esegue 12 test e salta le 31 prove PostgreSQL.
+
+
+## Membri e inviti
+
+La sezione **Membri e inviti**, visibile a OWNER e ADMIN, mostra membri e stati delle membership, permette di generare un link e di revocare un invito ancora non accettato. Gli ADMIN possono invitare MEMBER; soltanto gli OWNER possono invitare anche ADMIN. Il ruolo OWNER non è assegnabile tramite invito. Gli inviti non assegnano automaticamente progetti, non promuovono membri esistenti e non riattivano membership sospese.
+
+| Metodo | Endpoint | Risultato |
+| --- | --- | --- |
+| GET | `/api/organizations/{org}/members` | Membri con ruolo, stato membership e stato account; solo OWNER/ADMIN |
+| GET | `/api/organizations/{org}/invites` | Metadati degli inviti, senza token o hash |
+| GET | `/api/organizations/{org}/invites/{id}` | Metadati di un singolo invito; solo OWNER/ADMIN |
+| POST | `/api/organizations/{org}/invites` | `201`, `{invite, token}` e Location; token restituito una sola volta |
+| DELETE | `/api/organizations/{org}/invites/{id}` | `204`, revoca idempotente; un invito accettato produce `409` |
+| POST | `/api/organizations/{org}/invites/{id}/accept` | `200`, organizzazione e ruolo dell’utente che ha accettato |
+
+Creazione: `{"email":"persona@example.test","role":"MEMBER"}`. Accettazione: `{"token":"<token ricevuto>"}`. L’email non arriva dal JSON: il backend usa il claim corrente `email` del JWT validato e richiede `email_verified=true`, confrontandolo con il destinatario senza distinguere maiuscole/minuscole. Nessun collegamento di identità esistenti viene fatto per email. Un primo accesso senza email verificata viene rifiutato in autenticazione con `401`; un account già risolto che non soddisfa il controllo dell’invito riceve `403`.
+
+Il token casuale contiene 256 bit di entropia ed è conservato nel database solo come SHA-256. Non viene restituito da GET, né ricostruito in seguito. L’invito dura sette giorni. Un invito pendente per la stessa email, nella stessa organizzazione, produce `409`; un vecchio invito scaduto viene revocato prima di consentire una nuova emissione. Lo stato `EXPIRED` è calcolato per la lettura, senza richiedere un job o una nuova migrazione.
+
+Il link usa il fragment della console: `/#organization=<uuid>&invite=<uuid>&token=<token>`. La console lo ripulisce appena caricato e conserva temporaneamente il token in sessionStorage, nella stessa scheda, per completare il login Keycloak. Il token viene inviato soltanto nel corpo POST dell’accettazione e viene rimosso dopo successo, annullamento, uscita esplicita o errore definitivo. Il link va condiviso manualmente: questa versione **non invia email**. Se il link viene perso, revocare l’invito e generarne uno nuovo.
+
+L’accettazione è esplicita, transazionale e serializzata con la revoca. Controlla organizzazione e account attivi, token, scadenza, email verificata e permessi attuali dell’autore dell’invito. Crea una sola membership e registra il consumo nello stesso commit. Un retry dello stesso account dopo un successo è idempotente e restituisce soltanto una membership ancora attiva, senza ripristinare ruoli o stati. Altre identità, anche con la stessa email, non possono riutilizzare un invito consumato. Token invalidi o risorse di un’altra organizzazione producono `404`; inviti scaduti/revocati/non più utilizzabili producono `410`.
+
+Nel realm di sviluppo la registrazione pubblica è disabilitata: il destinatario deve già avere un account Keycloak con email verificata. Non sono inclusi servizio email, registrazione pubblica, modifica/sospensione dei membri o assegnazione ai progetti. Le risposte contenenti dati del team e token usano `Cache-Control: no-store`. Le prove aggiuntive coprono anche doppia accettazione, revoca concorrente, email non verificata, autorizzazioni dell’autore revocate e rollback atomico.

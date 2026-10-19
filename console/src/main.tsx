@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { auth, initializeAuth, loadProfile, redirectUri, SessionExpired, type Profile } from './auth';
 import './style.css';
 import { OrganizationPanel } from './OrganizationPanel';
+import { InvitationPanel } from './InvitationPanel';
+import { clearInvitation, readInvitation } from './invitation';
+import { rememberOrganization } from './organizations';
 
 type Session =
   | { kind: 'loading' }
@@ -13,6 +16,7 @@ type Session =
 function App() {
   const [session, setSession] = useState<Session>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
+  const [invitation, setInvitation] = useState(() => readInvitation());
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -57,6 +61,7 @@ function App() {
     try {
       // Build the RP-initiated logout URL before clearing the in-memory ID/access tokens.
       const url = auth.createLogoutUrl({ redirectUri });
+      if (invitation) { clearInvitation(); setInvitation(null); }
       auth.clearToken();
       setSession({ kind: 'guest' });
       window.location.assign(url);
@@ -88,13 +93,19 @@ function App() {
             <h2 id="card-title">Ciao, {session.profile.firstName || 'bentornato'}.</h2>
             <p>Hai effettuato l’accesso al tuo spazio Dialoga.</p>
             <dl className="profile"><dt>Il tuo account</dt><dd>{session.profile.email}</dd></dl>
-            <OrganizationPanel key={session.profile.id} userId={session.profile.id} onExpired={() => setSession({ kind: 'guest', message: 'La sessione è scaduta. Accedi di nuovo per continuare.' })} />
+            {invitation ? <InvitationPanel invitation={invitation} onAccepted={organization => {
+              rememberOrganization(session.profile.id, organization.id);
+              window.location.hash = `organization=${organization.id}`;
+              setInvitation(null);
+            }} onCancel={() => { clearInvitation(); setInvitation(null); }} onExpired={() => setSession({ kind: 'guest', message: 'La sessione è scaduta. Accedi di nuovo per continuare.' })} /> :
+              <OrganizationPanel key={session.profile.id} userId={session.profile.id} onExpired={() => setSession({ kind: 'guest', message: 'La sessione è scaduta. Accedi di nuovo per continuare.' })} />}
             <button className="secondary" onClick={logout} disabled={busy}>{busy ? 'Uscita in corso…' : 'Esci'}</button>
             <p className="card-footnote">Uscirai da Dialoga e dalla sessione di accesso.</p>
           </> : <>
             <p className="eyebrow">BENVENUTO IN DIALOGA</p>
             <h2 id="card-title">Il prossimo passo<br />inizia da qui.</h2>
             <p>Accedi al tuo account per entrare nel tuo spazio di lavoro.</p>
+            {invitation && <p className="notice">Hai ricevuto un invito. Accedi con l’email del destinatario per continuare.</p>}
             {session.kind === 'guest' && session.message && <p className="notice" role="status">{session.message}</p>}
             {session.kind === 'error' && <p className="notice" role="alert">{session.message}</p>}
             {signedIn ? <><button className="primary" onClick={() => setAttempt(n => n + 1)}>Riprova</button><button className="secondary" onClick={logout} disabled={busy}>Esci</button></> : <button className="primary" onClick={login} disabled={busy}>{busy ? 'Accesso in corso…' : 'Accedi'}<span aria-hidden="true">→</span></button>}

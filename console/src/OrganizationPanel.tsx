@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SessionExpired } from './auth';
 import { ProjectsPanel } from './ProjectsPanel';
+import { MembersPanel } from './MembersPanel';
 import { captureWorkspaceRoute, workspaceRoute } from './workspace';
 import { createOrganization, getOrganization, OrganizationError, readRememberedOrganization, rememberOrganization, suggestedSlug, type Organization } from './organizations';
 
@@ -91,6 +92,7 @@ export function OrganizationPanel({ userId, onExpired }: { userId: string; onExp
     <h3 id="organization-title">{state.organization.name}</h3>
     <dl className="organization-details"><dt>Indirizzo</dt><dd>{state.organization.slug}</dd><dt>Il tuo ruolo</dt><dd><span className="status-pill">{state.organization.role}</span></dd></dl>
     <ProjectsPanel key={state.organization.id} organization={state.organization} onExpired={onExpired} />
+    <MembersPanel key={state.organization.id + ":team"} organization={state.organization} onExpired={onExpired} />
     <a className="organization-link" href={`#organization=${state.organization.id}`}>Apri questa organizzazione <span aria-hidden="true">→</span></a>
   </section>;
   return <section className="organization-panel" aria-labelledby="organization-title">

@@ -381,3 +381,15 @@ h2 {
 .project-detail dt { font-size: 10px; color: #6a786e; margin-bottom: 6px; }
 .project-detail dd { margin: 0 0 18px; line-height: 1.7; overflow-wrap: anywhere; }
 .empty-projects { line-height: 1.8; color: #6a786e; }
+.members-panel { margin: 20px 0; }
+.members-panel h4 { font-size: 20px; font-weight: 500; margin: 24px 0 16px; }
+.members-panel h5 { font-size: 16px; font-weight: 500; margin: 24px 0 12px; }
+.team-list { list-style: none; padding: 0; margin: 16px 0; }
+.team-list li { display: flex; flex-direction: column; gap: 6px; border-bottom: 1px solid #e2e6db; padding: 14px 0; overflow-wrap: anywhere; }
+.team-list strong { font-size: 12px; font-weight: 600; }
+.team-list span { font-size: 11px; color: #6a786e; }
+.team-list .text-button { align-self: flex-start; }
+.members-panel select { width: 100%; padding: 12px; border: 1px solid #cbd3c7; border-radius: 8px; font: inherit; color: #183e36; background: #fff; }
+.members-panel select:focus-visible { outline: 2px solid #315e4e; outline-offset: 2px; }
+.generated-invite { padding: 16px; border: 1px solid #cbd3c7; border-radius: 9px; margin: 20px 0; background: #f6f8f2; }
+.generated-invite p { line-height: 1.7; font-size: 12px; }

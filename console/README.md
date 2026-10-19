@@ -18,6 +18,16 @@ La creazione apre il dettaglio letto dall’API. I collegamenti `/#organization=
 
 Questa versione non include ancora modifica, archiviazione o assegnazione dei membri. I campi di ruolo e stato non sono selezionabili dal modulo.
 
+## Membri e inviti
+
+OWNER e ADMIN trovano **Membri e inviti** sotto i progetti. La sezione carica i dati soltanto all’apertura. Da qui è possibile vedere i membri, creare un invito MEMBER e revocare gli inviti in attesa; soltanto un OWNER può scegliere ADMIN. Il link generato si può copiare e condividere manualmente con il destinatario. Non viene inviata un’email. Il token viene mostrato soltanto alla creazione e resta in memoria nella schermata aperta: se lo si perde, revocare l’invito e rigenerarlo.
+
+Chi apre il link deve accedere con un account Keycloak esistente e con email verificata uguale a quella invitata, quindi scegliere **Accetta invito**. Non viene eseguita un’accettazione automatica al caricamento. Il token viene rimosso dal fragment URL appena letto e conservato temporaneamente in sessionStorage nella stessa scheda durante il login; viene eliminato dopo successo, annullamento, logout esplicito o errore definitivo. Non finisce in localStorage né in query string o URL delle API. È necessario consentire sessionStorage per attraversare il redirect del login. Se si usa l’account sbagliato, uscire e riaprire il link con quello corretto.
+
+Un’accettazione riuscita apre l’organizzazione e ne ricorda l’ID per il nuovo utente. L’invito non assegna progetti né modifica una membership già presente. La revoca di un invito accettato non rimuove un membro; la gestione dei ruoli e della sospensione delle membership è una funzionalità distinta, non ancora esposta.
+
+Gli otto test browser aggiuntivi del team verificano generazione senza doppi invii, copia/revoca, ruoli, duplicati, passaggio attraverso Keycloak, consenso esplicito, email errata, scadenza, dati negati dal server e gestione di un link malformato. Le API team sono simulate in questi test; una prova separata con Keycloak e API reali ha creato un destinatario temporaneo, rifiutato l’account sbagliato, accettato con email verificata e verificato la membership MEMBER. Tutti i dati temporanei sono stati eliminati.
+
 ## Avvio locale
 
 Richiede Node.js 22.12+ e backend/PostgreSQL/Keycloak avviati secondo il README principale.
@@ -54,7 +64,7 @@ npm run test:e2e
 
 Se Chromium è già installato, usare `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`. Playwright avvia Vite; backend e Keycloak devono essere già disponibili. I test utilizzano l’utente dimostrativo del realm; `DIALOGA_TEST_USERNAME` e `DIALOGA_TEST_PASSWORD` permettono di usare un utente di test differente. Eseguire contro un ambiente locale di test.
 
-Le prove coprono login reale con PKCE, profilo dall’API, ripristino SSO dopo reload, logout anche dal provider, credenziali errate, errore API con retry e risposta API 401. I sei test aggiuntivi dell’onboarding simulano le risposte delle API organizzazione e verificano creazione senza doppi invii, ripristino dopo reload, slug occupato, validazione, organizzazione non accessibile, retry e scadenza della sessione. Login e profilo usano servizi reali; una prova manuale completa in Chromium ha inoltre verificato POST reale, assegnazione OWNER e rilettura dopo reload. La suite comprende complessivamente 17 test browser: i sette casi aggiuntivi dei progetti verificano creazione senza doppi invii, elenco per MEMBER senza azione di creazione, validazione e conflitti di slug, retry, collegamenti non accessibili, permessi negati dal server e sessione scaduta. Le risposte delle API progetto sono simulate in questi sette casi; una prova separata in Chromium ha verificato creazione, elenco e dettaglio con API reali, oltre a conflitto 409 e isolamento tra organizzazioni 404.
+Le prove coprono login reale con PKCE, profilo dall’API, ripristino SSO dopo reload, logout anche dal provider, credenziali errate, errore API con retry e risposta API 401. I sei test aggiuntivi dell’onboarding simulano le risposte delle API organizzazione e verificano creazione senza doppi invii, ripristino dopo reload, slug occupato, validazione, organizzazione non accessibile, retry e scadenza della sessione. Login e profilo usano servizi reali; una prova manuale completa in Chromium ha inoltre verificato POST reale, assegnazione OWNER e rilettura dopo reload. La suite comprende complessivamente 25 test browser: i sette casi aggiuntivi dei progetti verificano creazione senza doppi invii, elenco per MEMBER senza azione di creazione, validazione e conflitti di slug, retry, collegamenti non accessibili, permessi negati dal server e sessione scaduta. Le risposte delle API progetto sono simulate in questi sette casi; una prova separata in Chromium ha verificato creazione, elenco e dettaglio con API reali, oltre a conflitto 409 e isolamento tra organizzazioni 404.
 
 ## Build di distribuzione
 
