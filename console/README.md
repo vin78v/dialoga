@@ -16,7 +16,7 @@ Nell’organizzazione, la sezione **Progetti** mostra l’elenco restituito dal 
 
 La creazione apre il dettaglio letto dall’API. I collegamenti `/#organization=<uuid>&project=<uuid>` vengono conservati attraverso il callback Keycloak e il reload, con **Torna ai progetti** per rientrare nell’elenco. Un progetto non accessibile non mostra nome o descrizione e permette di tornare alla lista. **Aggiorna elenco** rilegge i dati senza ripetere POST: usarlo anche se una creazione ha avuto un esito incerto per problemi di rete. Il modulo conserva i dati dopo un conflitto dello slug e non invia richieste concorrenti.
 
-Questa versione non include ancora modifica, archiviazione o assegnazione dei membri. I campi di ruolo e stato non sono selezionabili dal modulo.
+Questa versione non include ancora modifica o archiviazione dei progetti. Le assegnazioni dei membri si gestiscono dal dettaglio. I campi di ruolo e stato non sono selezionabili dal modulo.
 
 ## Membri e inviti
 
@@ -64,8 +64,17 @@ npm run test:e2e
 
 Se Chromium è già installato, usare `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e`. Playwright avvia Vite; backend e Keycloak devono essere già disponibili. I test utilizzano l’utente dimostrativo del realm; `DIALOGA_TEST_USERNAME` e `DIALOGA_TEST_PASSWORD` permettono di usare un utente di test differente. Eseguire contro un ambiente locale di test.
 
-Le prove coprono login reale con PKCE, profilo dall’API, ripristino SSO dopo reload, logout anche dal provider, credenziali errate, errore API con retry e risposta API 401. I sei test aggiuntivi dell’onboarding simulano le risposte delle API organizzazione e verificano creazione senza doppi invii, ripristino dopo reload, slug occupato, validazione, organizzazione non accessibile, retry e scadenza della sessione. Login e profilo usano servizi reali; una prova manuale completa in Chromium ha inoltre verificato POST reale, assegnazione OWNER e rilettura dopo reload. La suite comprende complessivamente 25 test browser: i sette casi aggiuntivi dei progetti verificano creazione senza doppi invii, elenco per MEMBER senza azione di creazione, validazione e conflitti di slug, retry, collegamenti non accessibili, permessi negati dal server e sessione scaduta. Le risposte delle API progetto sono simulate in questi sette casi; una prova separata in Chromium ha verificato creazione, elenco e dettaglio con API reali, oltre a conflitto 409 e isolamento tra organizzazioni 404.
+Le prove coprono login reale con PKCE, profilo dall’API, ripristino SSO dopo reload, logout anche dal provider, credenziali errate, errore API con retry e risposta API 401. I sei test aggiuntivi dell’onboarding simulano le risposte delle API organizzazione e verificano creazione senza doppi invii, ripristino dopo reload, slug occupato, validazione, organizzazione non accessibile, retry e scadenza della sessione. Login e profilo usano servizi reali; una prova manuale completa in Chromium ha inoltre verificato POST reale, assegnazione OWNER e rilettura dopo reload. La suite comprende complessivamente 33 test browser: i sette casi aggiuntivi dei progetti verificano creazione senza doppi invii, elenco per MEMBER senza azione di creazione, validazione e conflitti di slug, retry, collegamenti non accessibili, permessi negati dal server e sessione scaduta. Le risposte delle API progetto sono simulate in questi sette casi; una prova separata in Chromium ha verificato creazione, elenco e dettaglio con API reali, oltre a conflitto 409 e isolamento tra organizzazioni 404.
 
 ## Build di distribuzione
 
 `npm run build` genera `dist/`. Servire i file con fallback a `index.html` e un reverse proxy `/api` verso il backend, oppure impostare `VITE_API_URL` prima della build e autorizzare l’origine nel CORS del backend. Il proxy di Vite è solo per lo sviluppo; `npm run preview` serve esclusivamente a ispezionare i file statici e non avvia backend o Keycloak. Su domini remoti usare HTTPS e configurare gli indirizzi pubblici e i redirect per quell’ambiente.
+
+
+## Gestione accessi al progetto
+
+Dal dettaglio del progetto, OWNER e ADMIN possono aprire **Gestisci accessi**, scegliere un MEMBER attivo dell’organizzazione e assegnare uno dei ruoli VIEWER, OPERATOR, EDITOR o MANAGER. La selezione di un membro già assegnato precarica il ruolo attuale. **Rimuovi accesso** richiede una conferma e revoca soltanto l’accesso a quel progetto. OWNER e ADMIN mantengono l’accesso implicito; il MANAGER del progetto non gestisce le assegnazioni.
+
+Cambio di ruolo e riattivazione rimuovono i permessi aggiuntivi precedenti; ripetere il salvataggio dello stesso ruolo attivo li conserva. La schermata mostra anche le assegnazioni non attive. Errori di rete consentono di ricaricare; risposte 403/404 alle modifiche rimuovono i dati del team caricati, mentre una sessione scaduta chiude lo spazio privato. Le autorizzazioni vengono sempre ricontrollate dal backend.
+
+Gli otto test aggiuntivi simulano le API team/assegnazioni e verificano filtri dei destinatari, invio singolo, modifica del ruolo, conferma di revoca, controlli per MEMBER, permessi revocati, retry, destinatario non più attivo e sessione scaduta. Una prova separata in Chromium con due account e API reali ha verificato invito, assegnazione, visibilità del progetto, cambio di ruolo e revoca effettiva, anche controllando il layout desktop e mobile. Tutti i dati temporanei sono stati eliminati.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SessionExpired } from './auth';
+import { ProjectMembersPanel } from './ProjectMembersPanel';
 import { suggestedSlug, type Organization } from './organizations';
 import { createProject, getProject, listProjects, ProjectError, type Project } from './projects';
 import { clearRequestedProject, requestedProject, workspaceHash, workspaceRoute } from './workspace';
@@ -110,6 +111,7 @@ export function ProjectsPanel({ organization, onExpired }: { organization: Organ
       {detailError ? <><p className="notice" role="alert">{detailError}</p><button className="secondary" onClick={() => setDetailAttempt(n => n + 1)}>Ricarica progetto</button></> : detail ? <article className="project-detail" aria-labelledby="project-name">
         <span className="status-pill">Attivo</span><h5 id="project-name">{detail.name}</h5>
         <dl><dt>Indirizzo del progetto</dt><dd>{detail.slug}</dd><dt>Descrizione</dt><dd className="project-description">{detail.description || 'Nessuna descrizione.'}</dd></dl>
+        <ProjectMembersPanel key={detail.id} organization={organization} projectId={detail.id} onExpired={onExpired} />
       </article> : <p role="status">Caricamento del progetto…</p>}
     </> : listError ? <><p className="notice" role="alert">{listError}</p><button className="secondary" onClick={() => setListAttempt(n => n + 1)}>Ricarica progetti</button></> : projects === null ? <p role="status">Caricamento dei progetti…</p> : <>
       {creating ? <form onSubmit={submit} aria-busy={submitting} className="project-form">

@@ -393,3 +393,9 @@ h2 {
 .members-panel select:focus-visible { outline: 2px solid #315e4e; outline-offset: 2px; }
 .generated-invite { padding: 16px; border: 1px solid #cbd3c7; border-radius: 9px; margin: 20px 0; background: #f6f8f2; }
 .generated-invite p { line-height: 1.7; font-size: 12px; }
+.project-members-panel { margin: 22px 0; border-top: 1px solid #e2e6db; padding-top: 16px; }
+.project-members-panel h6 { font-size: 18px; font-weight: 500; margin: 22px 0 12px; }
+.project-members-panel select { width: 100%; padding: 12px; border: 1px solid #cbd3c7; border-radius: 8px; font: inherit; color: #183e36; background: #fff; }
+.project-members-panel select:focus-visible { outline: 2px solid #315e4e; outline-offset: 2px; }
+.assignment-actions { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.remove-access { padding: 14px; border: 1px solid #d8cbb5; border-radius: 8px; margin: 18px 0; background: #fbf7ef; overflow-wrap: anywhere; }

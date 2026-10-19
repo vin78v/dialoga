@@ -31,7 +31,7 @@ mvn spring-boot:run
 
 ## Limiti attuali
 
-Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione e dettaglio dei progetti; include elenco dei membri e inviti con accettazione; non include ancora modifica o sospensione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
+Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione e dettaglio dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; non include ancora modifica o sospensione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
 
 ## Riferimenti
 
@@ -143,7 +143,7 @@ V5 fissa il `search_path` dei trigger di membership e vincolo OWNER, mantenendo 
 
 ### Test PostgreSQL dell’onboarding e dei progetti e dei progetti
 
-`mvn verify` esegue i test unitari; i 31 test PostgreSQL (5 organizzazioni, 10 progetti e 16 team/inviti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
+`mvn verify` esegue i test unitari; i 43 test PostgreSQL (5 organizzazioni, 10 progetti, 16 team/inviti e 12 assegnazioni ai progetti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
 
 ```sh
 docker compose exec -T db createdb -U dialoga_migration dialoga_onboarding_test
@@ -193,7 +193,7 @@ La risposta contiene `id`, `organizationId`, `name`, `slug`, `description` e `st
 
 Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. I progetti archiviati non sono elencati né aperti da queste API.
 
-Questa versione include elenco, creazione e dettaglio, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Modifica, archiviazione e assegnazione dei membri non sono ancora esposte nell’interfaccia. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 43 test senza skip; senza database esegue 12 test e salta le 31 prove PostgreSQL.
+Questa versione include elenco, creazione e dettaglio, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Modifica e archiviazione non sono ancora esposte nell’interfaccia. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 56 test senza skip; senza database esegue 13 test e salta le 43 prove PostgreSQL.
 
 
 ## Membri e inviti
@@ -217,4 +217,21 @@ Il link usa il fragment della console: `/#organization=<uuid>&invite=<uuid>&toke
 
 L’accettazione è esplicita, transazionale e serializzata con la revoca. Controlla organizzazione e account attivi, token, scadenza, email verificata e permessi attuali dell’autore dell’invito. Crea una sola membership e registra il consumo nello stesso commit. Un retry dello stesso account dopo un successo è idempotente e restituisce soltanto una membership ancora attiva, senza ripristinare ruoli o stati. Altre identità, anche con la stessa email, non possono riutilizzare un invito consumato. Token invalidi o risorse di un’altra organizzazione producono `404`; inviti scaduti/revocati/non più utilizzabili producono `410`.
 
-Nel realm di sviluppo la registrazione pubblica è disabilitata: il destinatario deve già avere un account Keycloak con email verificata. Non sono inclusi servizio email, registrazione pubblica, modifica/sospensione dei membri o assegnazione ai progetti. Le risposte contenenti dati del team e token usano `Cache-Control: no-store`. Le prove aggiuntive coprono anche doppia accettazione, revoca concorrente, email non verificata, autorizzazioni dell’autore revocate e rollback atomico.
+Nel realm di sviluppo la registrazione pubblica è disabilitata: il destinatario deve già avere un account Keycloak con email verificata. Non sono inclusi servizio email, registrazione pubblica, modifica/sospensione dei membri dell’organizzazione. Le risposte contenenti dati del team e token usano `Cache-Control: no-store`. Le prove aggiuntive coprono anche doppia accettazione, revoca concorrente, email non verificata, autorizzazioni dell’autore revocate e rollback atomico.
+
+
+## Accessi dei membri ai progetti
+
+Nel dettaglio del progetto, **Gestisci accessi** permette a OWNER e ADMIN dell’organizzazione di assegnare un MEMBER attivo, cambiarne il ruolo o revocarne l’accesso. I ruoli disponibili sono `MANAGER`, `EDITOR`, `OPERATOR` e `VIEWER`, con i permessi della policy esistente. Il ruolo progetto MANAGER non autorizza a gestire le assegnazioni. OWNER e ADMIN hanno accesso implicito a tutti i progetti: questo flusso non può limitarlo né modificarne il ruolo nell’organizzazione.
+
+| Metodo | Percorso | Comportamento |
+|---|---|---|
+| GET | `/api/organizations/{org}/projects/{project}/members` | Elenca assegnazioni, ruoli e stati; solo OWNER/ADMIN |
+| PUT | `/api/organizations/{org}/projects/{project}/members/{user}` | Assegna o riattiva un membro con JSON `{"role":"EDITOR"}`; restituisce 200 |
+| DELETE | `/api/organizations/{org}/projects/{project}/members/{user}` | Revoca l’assegnazione; restituisce 204 ed è idempotente |
+
+Il backend verifica ruoli e stato nel database, con RLS e controlli sul progetto dell’organizzazione indicata. Un ruolo non valido produce `400`, un membro senza privilegi amministrativi `403`, risorse non accessibili o appartenenti ad altre organizzazioni `404`, un destinatario non idoneo `409`. Assegnare richiede account e membership organizzazione attivi; revocare è consentito anche se il destinatario è sospeso. Le risposte con dati dei membri usano `Cache-Control: no-store`.
+
+La revoca sospende la membership progetto e cancella entrambi i tipi di grant espliciti del destinatario in quel progetto. Anche cambio di ruolo e riattivazione cancellano i grant precedenti, evitando di ripristinare privilegi inattesi. Ripetere un PUT con lo stesso ruolo già attivo conserva invece i grant correnti. Le operazioni sono atomiche e non modificano gli altri progetti o la membership nell’organizzazione. Non servono nuove migrazioni, dipendenze o servizi.
+
+Le prove PostgreSQL coprono autorizzazioni, isolamento, account sospesi, idempotenza, pulizia dei grant, rollback e richieste concorrenti. La console aggiunge otto test browser e una prova separata con due account, Keycloak e API reali: accettazione dell’invito, assegnazione, lettura del progetto, cambio di ruolo e revoca con successiva risposta 404. I dati temporanei della prova sono stati eliminati.
