@@ -13,6 +13,7 @@ services:
       - ./db-reference/V3__optional_tenant_rls.sql:/docker-entrypoint-initdb.d/02-rls.sql:ro
       - ./src/main/resources/db/migration/V4__project_user_permission.sql:/docker-entrypoint-initdb.d/03-sensitive-permissions.sql:ro
       - ./db-reference/04-create-local-app-role.sql:/docker-entrypoint-initdb.d/04-app-role.sql:ro
+      - ./src/main/resources/db/migration/V5__organization_trigger_search_path.sql:/docker-entrypoint-initdb.d/05-organization-triggers.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dialoga_migration -d dialoga"]
       interval: 5s
@@ -25,7 +26,7 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: dialoga-admin-local
-      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME: http://localhost:8081
     ports:
       - "8081:8080"
     volumes:
@@ -42,7 +43,8 @@ services:
       DIALOGA_DB_URL: jdbc:postgresql://db:5432/dialoga
       DIALOGA_DB_USERNAME: dialoga_app
       DIALOGA_DB_PASSWORD: dialoga_local_app
-      DIALOGA_OIDC_ISSUER: http://keycloak:8080/realms/dialoga
+      DIALOGA_OIDC_ISSUER: http://localhost:8081/realms/dialoga
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/dialoga/protocol/openid-connect/certs
       DIALOGA_API_AUDIENCE: dialoga-api
       DIALOGA_CONSOLE_ORIGINS: http://localhost:5173
     ports:

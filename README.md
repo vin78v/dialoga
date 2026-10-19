@@ -15,7 +15,7 @@ Starter Java per il prossimo passaggio del progetto Dialoga: validazione di acce
 
 ## Configurazione locale
 
-Il test rapido usa Docker Compose e non richiede installare JDK o Maven sul PC. Il container compila con JDK 21 e lancia `mvn verify` durante la build. Se preferisci eseguire l’app fuori da Docker, servono JDK 21, Maven 3.6.3+ e PostgreSQL 16. Gli script inclusi vanno applicati con un utente di migrazione: V1, V3 e V4, in quest’ordine. V2 resta opzionale e serve solo per pgvector. Il realm Keycloak deve emettere token con `iss` corrispondente a `DIALOGA_OIDC_ISSUER` e `aud` contenente `DIALOGA_API_AUDIENCE` (default `dialoga-api`).
+Il test rapido usa Docker Compose e non richiede installare JDK o Maven sul PC. Il container compila con JDK 21 e lancia `mvn verify` durante la build. Se preferisci eseguire l’app fuori da Docker, servono JDK 21, Maven 3.6.3+ e PostgreSQL 16. Gli script inclusi vanno applicati con un utente di migrazione: V1, V3, V4 e V5, in quest’ordine. V2 resta opzionale e serve solo per pgvector. Il realm Keycloak deve emettere token con `iss` corrispondente a `DIALOGA_OIDC_ISSUER` e `aud` contenente `DIALOGA_API_AUDIENCE` (default `dialoga-api`).
 
 ```sh
 export DIALOGA_DB_URL=jdbc:postgresql://localhost:5432/dialoga
@@ -31,7 +31,7 @@ mvn spring-boot:run
 
 ## Limiti attuali
 
-Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. Non crea ancora automaticamente organizzazione e membership OWNER: quello sarà il flusso di onboarding successivo. I test inclusi verificano la matrice di autorizzazione a livello unitario; non sono ancora test d’integrazione del database/JWT. Il codice non è stato eseguito contro un Keycloak reale né compilato in questo ambiente, che al momento dispone solo di Java 17 e non ha Maven. Eseguire `mvn test` con JDK 21 e Maven prima di integrare in un repository. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
+Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione e dettaglio dei progetti; non include ancora inviti o gestione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
 
 ## Riferimenti
 
@@ -102,3 +102,95 @@ Questa configurazione avvia un ambiente Linux cloud con Docker Compose già disp
 7. Ferma i servizi con `Ctrl+C`; esegui `docker compose down -v` per eliminare anche il database di prova. Arresta poi il Codespace dal menu GitHub quando hai finito, così non resta in esecuzione.
 
 Il flusso incluso è una prova da terminale con token di test; non configura ancora l'accesso Keycloak tramite una pagina web. Codespaces richiede un repository GitHub e consuma la quota di calcolo del tuo account.
+
+
+## Onboarding organizzazione
+
+Dopo il login, creare un’organizzazione con `POST /api/organizations`:
+
+```sh
+curl -i http://localhost:8080/api/organizations \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"La mia organizzazione","slug":"mia-organizzazione"}'
+```
+
+Risposta `201 Created`, header `Location: /api/organizations/<id>` e corpo:
+
+```json
+{"id":"<uuid>","name":"La mia organizzazione","slug":"mia-organizzazione","role":"OWNER"}
+```
+
+Il nome viene ripulito dagli spazi iniziali e finali e deve avere 1–160 caratteri. Lo slug deve avere 1–63 caratteri ASCII minuscoli o numerici, con trattini singoli tra segmenti. Il proprietario è sempre l’utente autenticato; il client non può scegliere utente, ruolo o ID dell’organizzazione. Creazione e membership ACTIVE/OWNER sono atomiche, con contesto RLS locale alla transazione. Non vengono creati progetti o assegnati permessi aggiuntivi.
+
+- `400`: nome/slug non validi o JSON non valido.
+- `401`: autenticazione mancante o token non valido.
+- `403`: account non attivo.
+- `409`: slug già occupato, anche per richieste ripetute o concorrenti; nessuna adesione automatica a organizzazioni esistenti.
+
+`GET /api/organizations/<id>` restituisce la stessa rappresentazione a un membro attivo di un’organizzazione attiva. Restituisce `404` per organizzazioni inesistenti o non accessibili.
+
+### Migrazione di database esistenti
+
+Compose applica V5 automaticamente **solo su volumi nuovi**. Su database esistenti, eseguire con il migration owner, senza eliminare i volumi:
+
+```sh
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U dialoga_migration -d dialoga \
+  < src/main/resources/db/migration/V5__organization_trigger_search_path.sql
+```
+
+V5 fissa il `search_path` dei trigger di membership e vincolo OWNER, mantenendo RLS e i privilegi del chiamante. Non è presente un runner automatico delle migrazioni nell’applicazione.
+
+### Test PostgreSQL dell’onboarding e dei progetti e dei progetti
+
+`mvn verify` esegue i test unitari; i 15 test PostgreSQL (5 in `OrganizationDatabaseTest` e 10 in `ProjectDatabaseTest`) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
+
+```sh
+docker compose exec -T db createdb -U dialoga_migration dialoga_onboarding_test
+for migration in db-reference/V1__dialoga_schema.sql \
+  db-reference/V3__optional_tenant_rls.sql \
+  src/main/resources/db/migration/V4__project_user_permission.sql \
+  src/main/resources/db/migration/V5__organization_trigger_search_path.sql; do
+  docker compose exec -T db psql -v ON_ERROR_STOP=1 -U dialoga_migration \
+    -d dialoga_onboarding_test < "$migration" || break
+done
+docker compose exec -T db psql -v ON_ERROR_STOP=1 -U dialoga_migration \
+  -d dialoga_onboarding_test -c 'GRANT CONNECT ON DATABASE dialoga_onboarding_test TO dialoga_app; GRANT USAGE ON SCHEMA dialoga TO dialoga_app; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA dialoga TO dialoga_app;'
+DIALOGA_TEST_DB_URL=jdbc:postgresql://localhost:5432/dialoga_onboarding_test \
+DIALOGA_TEST_DB_USERNAME=dialoga_app DIALOGA_TEST_DB_PASSWORD=dialoga_local_app mvn verify
+```
+
+La preparazione va eseguita una sola volta su un database nuovo; le successive esecuzioni dei test creano e ripuliscono i propri dati. Le prove verificano commit con OWNER attivo, isolamento da non membri, collisioni di slug, richieste concorrenti, rollback atomico e account sospesi.
+
+
+## Console web: login e logout
+
+La cartella [`console`](console/README.md) contiene la console React/TypeScript. Dopo aver avviato i servizi, eseguire `npm ci` e `npm run dev` da `console`. Il pulsante **Accedi** apre Keycloak con Authorization Code + PKCE; dopo il login mostra il profilo restituito da `/api/me`. **Esci** rimuove i token dalla memoria e chiude la sessione Keycloak. Il test kit usa un client browser dedicato, `dialoga-console`, separato dal client password grant per le prove da terminale.
+
+Su un realm esistente, aggiungere il client con `keycloak/configure-console.py`, come descritto nel README della console. Non è necessario ricreare il database. Le istruzioni includono configurazione degli indirizzi, build e test browser Playwright.
+
+
+La console collega anche l’onboarding: dopo il login consente di creare un’organizzazione, mostra il ruolo OWNER e permette di riaprirla da un collegamento dedicato. L’ultima organizzazione è ricordata per utente nel browser, ma ogni lettura passa sempre dalle verifiche di accesso del backend. Per dettagli e limiti del ripristino consultare il [README della console](console/README.md#creazione-dellorganizzazione).
+
+
+## Progetti nell’organizzazione
+
+La console mostra i progetti sotto l’organizzazione attiva. OWNER e ADMIN possono usare **Nuovo progetto**; un MEMBER vede soltanto i progetti con membership progetto attiva. La creazione richiede nome (1–160 caratteri), slug (1–63 caratteri, minuscole ASCII/numeri/trattini singoli) e descrizione facoltativa (massimo 2000 caratteri). Nome e descrizione vengono ripuliti dagli spazi alle estremità; una descrizione vuota viene salvata come null.
+
+| Metodo | Endpoint | Risultato |
+| --- | --- | --- |
+| GET | `/api/organizations/{organizationId}/projects` | Array dei progetti attivi visibili, dal più recente |
+| POST | `/api/organizations/{organizationId}/projects` | `201 Created`, progetto e header Location |
+| GET | `/api/organizations/{organizationId}/projects/{projectId}` | Dettaglio di un progetto attivo accessibile |
+
+Esempio corpo POST:
+
+```json
+{"name":"Assistenza clienti","slug":"assistenza-clienti","description":"Conversazioni e supporto clienti"}
+```
+
+La risposta contiene `id`, `organizationId`, `name`, `slug`, `description` e `status`. L’organizzazione viene sempre presa dal percorso e il ruolo è verificato nel database; né ruolo né ID forniti nel JSON assegnano autorizzazioni. OWNER/ADMIN accedono senza una membership progetto aggiuntiva. Gli altri membri devono avere una membership progetto ACTIVE, oltre a quella organizzazione e al proprio account attivi.
+
+Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. I progetti archiviati non sono elencati né aperti da queste API.
+
+Questa versione include elenco, creazione e dettaglio, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Modifica, archiviazione e assegnazione dei membri non sono ancora esposte nell’interfaccia. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 22 test senza skip; senza database esegue 7 test e salta le 15 prove PostgreSQL.
