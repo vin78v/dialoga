@@ -57,6 +57,11 @@ class OrganizationTeamDatabaseTest {
         try {
             for (UUID id : orgIds) tenant(id, () -> {
                 jdbc.update("DELETE FROM dialoga.organization_invite WHERE organization_id = ?", id);
+                jdbc.update("DELETE FROM dialoga.project_permission WHERE organization_id = ?", id);
+                jdbc.update("DELETE FROM dialoga.project_user_permission WHERE organization_id = ?", id);
+                jdbc.update("DELETE FROM dialoga.organization_permission WHERE organization_id = ?", id);
+                jdbc.update("DELETE FROM dialoga.project_membership WHERE organization_id = ?", id);
+                jdbc.update("DELETE FROM dialoga.project WHERE organization_id = ?", id);
                 jdbc.update("UPDATE dialoga.organization SET status = 'DELETED' WHERE id = ?", id);
                 jdbc.update("DELETE FROM dialoga.organization_membership WHERE organization_id = ?", id);
                 jdbc.update("DELETE FROM dialoga.organization WHERE id = ?", id);
@@ -193,6 +198,170 @@ class OrganizationTeamDatabaseTest {
                 assertEquals(3, team.members(owner, org).size());
             }
         }
+    }
+
+    @Test void ownerCanPromoteAnotherOwnerAndThenDemoteSelf() {
+        assertEquals("OWNER", team.changeRole(owner, org, member.id(), "OWNER").role());
+        assertEquals("ADMIN", team.changeRole(owner, org, owner.id(), "ADMIN").role());
+        status(403, () -> team.changeRole(owner, org, admin.id(), "MEMBER"));
+        assertEquals("MEMBER", team.changeRole(member, org, owner.id(), "MEMBER").role());
+        assertEquals("OWNER", organizations.get(member, org).role());
+    }
+    @Test void adminMayOnlySuspendOrReactivateRegularMembers() {
+        status(403, () -> team.changeRole(admin, org, admin.id(), "OWNER"));
+        status(403, () -> team.changeRole(admin, org, member.id(), "ADMIN"));
+        status(403, () -> team.changeStatus(admin, org, owner.id(), "SUSPENDED"));
+        status(403, () -> team.changeStatus(admin, org, admin.id(), "SUSPENDED"));
+        assertEquals("SUSPENDED", team.changeStatus(admin, org, member.id(), "SUSPENDED").status());
+        status(404, () -> organizations.get(member, org));
+        assertEquals("ACTIVE", team.changeStatus(admin, org, member.id(), "ACTIVE").status());
+        assertEquals("MEMBER", organizations.get(member, org).role());
+    }
+    @Test void membershipMutationsAreTenantScopedAndDenyRegularMembersAndOutsiders() {
+        status(403, () -> team.changeRole(member, org, member.id(), "OWNER"));
+        status(403, () -> team.changeStatus(member, org, admin.id(), "SUSPENDED"));
+        status(404, () -> team.changeRole(recipient, org, member.id(), "ADMIN"));
+        status(404, () -> team.changeStatus(recipient, org, member.id(), "SUSPENDED"));
+        UUID other = organization();
+        status(404, () -> team.changeRole(owner, other, member.id(), "ADMIN"));
+        status(404, () -> team.changeStatus(owner, other, member.id(), "SUSPENDED"));
+        assertEquals("MEMBER", organizations.get(member, org).role());
+    }
+    @Test void lastUsableOwnerAndSelfSuspensionAreProtected() {
+        status(409, () -> team.changeRole(owner, org, owner.id(), "MEMBER"));
+        status(409, () -> team.changeStatus(owner, org, owner.id(), "SUSPENDED"));
+        team.changeRole(owner, org, admin.id(), "OWNER");
+        jdbc.update("UPDATE dialoga.app_user SET status = 'SUSPENDED' WHERE id = ?", admin.id());
+        status(409, () -> team.changeRole(owner, org, owner.id(), "ADMIN"));
+        assertEquals("OWNER", organizations.get(owner, org).role());
+        jdbc.update("UPDATE dialoga.app_user SET status = 'ACTIVE' WHERE id = ?", admin.id());
+        team.changeStatus(owner, org, admin.id(), "SUSPENDED");
+        status(409, () -> team.changeRole(owner, org, owner.id(), "MEMBER"));
+        assertEquals("OWNER", team.changeStatus(owner, org, admin.id(), "ACTIVE").role());
+    }
+    @Test void inactiveActorsAndOrganizationsCannotMutateMembers() {
+        tenant(org, () -> jdbc.update("UPDATE dialoga.organization_membership SET status = 'SUSPENDED' WHERE organization_id = ? AND user_id = ?", org, admin.id()));
+        status(404, () -> team.changeStatus(admin, org, member.id(), "SUSPENDED"));
+        jdbc.update("UPDATE dialoga.app_user SET status = 'SUSPENDED' WHERE id = ?", owner.id());
+        status(404, () -> team.changeRole(owner, org, member.id(), "ADMIN"));
+        status(404, () -> team.changeStatus(owner, org, member.id(), "SUSPENDED"));
+        jdbc.update("UPDATE dialoga.app_user SET status = 'ACTIVE' WHERE id = ?", owner.id());
+        tenant(org, () -> jdbc.update("UPDATE dialoga.organization SET status = 'SUSPENDED' WHERE id = ?", org));
+        status(404, () -> team.changeRole(owner, org, member.id(), "ADMIN"));
+        status(404, () -> team.changeStatus(owner, org, member.id(), "ACTIVE"));
+    }
+    @Test void inactiveTargetCannotBePromotedOrGloballyReactivated() {
+        team.changeStatus(owner, org, member.id(), "SUSPENDED");
+        status(409, () -> team.changeRole(owner, org, member.id(), "OWNER"));
+        jdbc.update("UPDATE dialoga.app_user SET status = 'SUSPENDED' WHERE id = ?", member.id());
+        status(409, () -> team.changeStatus(owner, org, member.id(), "ACTIVE"));
+        assertEquals("SUSPENDED", team.changeStatus(owner, org, member.id(), "SUSPENDED").status());
+        jdbc.update("UPDATE dialoga.app_user SET status = 'ACTIVE' WHERE id = ?", member.id());
+        assertEquals("ACTIVE", team.changeStatus(owner, org, member.id(), "ACTIVE").status());
+        jdbc.update("UPDATE dialoga.app_user SET status = 'SUSPENDED' WHERE id = ?", member.id());
+        status(409, () -> team.changeRole(owner, org, member.id(), "ADMIN"));
+    }
+    private UUID seedPrivileges(UUID organization, DialogaUser user) {
+        UUID project = UUID.randomUUID();
+        tenant(organization, () -> {
+            jdbc.update("INSERT INTO dialoga.project (id, organization_id, name, slug) VALUES (?, ?, 'Access test', ?)", project, organization, "access-" + project);
+            UUID membership = jdbc.queryForObject("INSERT INTO dialoga.project_membership (organization_id, project_id, user_id, role) VALUES (?, ?, ?, 'MANAGER') RETURNING id", UUID.class, organization, project, user.id());
+            jdbc.update("INSERT INTO dialoga.project_permission (organization_id, project_id, project_membership_id, permission) VALUES (?, ?, ?, 'CONTACT_READ')", organization, project, membership);
+            jdbc.update("INSERT INTO dialoga.project_user_permission (organization_id, project_id, user_id, permission, granted_by_user_id) VALUES (?, ?, ?, 'PERSONAL_DATA_EXPORT', ?)", organization, project, user.id(), owner.id());
+            jdbc.update("INSERT INTO dialoga.organization_permission (organization_id, user_id, permission) VALUES (?, ?, 'BILLING_MANAGE')", organization, user.id());
+        });
+        return project;
+    }
+    private void assertPrivileges(UUID organization, UUID project, DialogaUser user, boolean present) {
+        tenant(organization, () -> {
+            int expected = present ? 1 : 0;
+            assertEquals(expected, jdbc.queryForObject("SELECT count(*) FROM dialoga.project_permission WHERE organization_id = ? AND project_id = ?", Integer.class, organization, project));
+            assertEquals(expected, jdbc.queryForObject("SELECT count(*) FROM dialoga.project_user_permission WHERE organization_id = ? AND user_id = ?", Integer.class, organization, user.id()));
+            assertEquals(expected, jdbc.queryForObject("SELECT count(*) FROM dialoga.organization_permission WHERE organization_id = ? AND user_id = ?", Integer.class, organization, user.id()));
+            assertEquals(present ? "ACTIVE" : "SUSPENDED", jdbc.queryForObject("SELECT status FROM dialoga.project_membership WHERE project_id = ? AND user_id = ?", String.class, project, user.id()));
+        });
+    }
+    @Test void roleChangeClearsAllExplicitPrivilegesWithoutAffectingAnotherTenant() {
+        var project = seedPrivileges(org, admin);
+        var issued = team.create(admin, org, recipient.email(), "MEMBER");
+        UUID other = organization();
+        tenant(other, () -> jdbc.update("INSERT INTO dialoga.organization_membership (organization_id, user_id, role) VALUES (?, ?, 'ADMIN')", other, admin.id()));
+        UUID otherProject = seedPrivileges(other, admin);
+        assertEquals("MEMBER", team.changeRole(owner, org, admin.id(), "MEMBER").role());
+        assertPrivileges(org, project, admin, false);
+        assertPrivileges(other, otherProject, admin, true);
+        assertEquals("REVOKED", team.getInvite(owner, org, issued.invite().id()).status());
+        status(410, () -> team.accept(recipient, org, issued.invite().id(), issued.token(), recipient.email(), true));
+        tenant(org, () -> assertTrue(new it.dialoga.security.project.ProjectService(jdbc).list(admin, org).isEmpty()));
+    }
+    @Test void suspensionAndReactivationDoNotRestoreOldProjectsGrantsOrInvitations() {
+        var project = seedPrivileges(org, admin);
+        var issued = team.create(admin, org, recipient.email(), "MEMBER");
+        var suspended = team.changeStatus(owner, org, admin.id(), "SUSPENDED");
+        assertEquals("ADMIN", suspended.role()); assertEquals("SUSPENDED", suspended.status());
+        assertPrivileges(org, project, admin, false);
+        status(404, () -> team.members(admin, org));
+        assertEquals("ACTIVE", team.changeStatus(owner, org, admin.id(), "ACTIVE").status());
+        assertPrivileges(org, project, admin, false);
+        assertEquals("REVOKED", team.getInvite(owner, org, issued.invite().id()).status());
+        status(410, () -> team.accept(recipient, org, issued.invite().id(), issued.token(), recipient.email(), true));
+        // ADMIN riattivato riottiene soltanto l'accesso implicito previsto dal ruolo.
+        tenant(org, () -> assertEquals(1, new it.dialoga.security.project.ProjectService(jdbc).list(admin, org).size()));
+    }
+    @Test void identicalRoleAndActiveStatusRetriesPreserveNewGrantsAndInvitations() {
+        UUID project = seedPrivileges(org, admin);
+        var issued = team.create(admin, org, recipient.email(), "MEMBER");
+        assertEquals("ADMIN", team.changeRole(owner, org, admin.id(), "ADMIN").role());
+        assertEquals("ACTIVE", team.changeStatus(owner, org, admin.id(), "ACTIVE").status());
+        assertPrivileges(org, project, admin, true);
+        assertEquals("PENDING", team.getInvite(owner, org, issued.invite().id()).status());
+    }
+    @Test void membershipAndPrivilegeChangesRollbackTogether() {
+        UUID project = seedPrivileges(org, admin);
+        var issued = team.create(admin, org, recipient.email(), "MEMBER");
+        assertThrows(IllegalStateException.class, () -> transactions.executeWithoutResult(tx -> {
+            team.changeRole(owner, org, admin.id(), "MEMBER");
+            team.changeStatus(owner, org, admin.id(), "SUSPENDED");
+            throw new IllegalStateException("Injected failure");
+        }));
+        assertEquals("ADMIN", organizations.get(admin, org).role());
+        assertPrivileges(org, project, admin, true);
+        assertEquals("PENDING", team.getInvite(owner, org, issued.invite().id()).status());
+    }
+    @Test void concurrentOwnerDemotionsCannotLeaveOrganizationWithoutUsableOwner() throws Exception {
+        team.changeRole(owner, org, admin.id(), "OWNER");
+        var gate = new CountDownLatch(1);
+        Callable<Integer> first = () -> { gate.await(); return demote(owner, admin); };
+        Callable<Integer> second = () -> { gate.await(); return demote(admin, owner); };
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var a = pool.submit(first); var b = pool.submit(second); gate.countDown();
+            assertEquals(List.of(200, 403), java.util.stream.Stream.of(a.get(10, TimeUnit.SECONDS), b.get(10, TimeUnit.SECONDS)).sorted().toList());
+        }
+        tenant(org, () -> assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM dialoga.organization_membership WHERE organization_id = ? AND role = 'OWNER' AND status = 'ACTIVE'", Integer.class, org)));
+    }
+    @Test void reactivatedRegularMemberMustBeAssignedToProjectsAgain() {
+        UUID project = seedPrivileges(org, member);
+        tenant(org, () -> assertEquals(1, new it.dialoga.security.project.ProjectService(jdbc).list(member, org).size()));
+        team.changeStatus(admin, org, member.id(), "SUSPENDED");
+        assertPrivileges(org, project, member, false);
+        team.changeStatus(admin, org, member.id(), "ACTIVE");
+        assertPrivileges(org, project, member, false);
+        tenant(org, () -> assertTrue(new it.dialoga.security.project.ProjectService(jdbc).list(member, org).isEmpty()));
+    }
+    @Test void concurrentSelfDemotionsKeepOneActiveOwner() throws Exception {
+        team.changeRole(owner, org, admin.id(), "OWNER");
+        var gate = new CountDownLatch(1);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> { gate.await(); return demote(owner, owner); });
+            var second = pool.submit(() -> { gate.await(); return demote(admin, admin); });
+            gate.countDown();
+            assertEquals(List.of(200, 409), java.util.stream.Stream.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)).sorted().toList());
+        }
+        tenant(org, () -> assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM dialoga.organization_membership WHERE organization_id = ? AND role = 'OWNER' AND status = 'ACTIVE'", Integer.class, org)));
+    }
+    private int demote(DialogaUser actor, DialogaUser target) {
+        try { team.changeRole(actor, org, target.id(), "MEMBER"); return 200; }
+        catch (ResponseStatusException e) { return e.getStatusCode().value(); }
     }
 
 }

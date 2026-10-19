@@ -45,3 +45,20 @@ export async function acceptInvite(org: string, id: string, token: string, signa
   }
   return response.json();
 }
+
+export async function changeMember(org: string, user: string, kind: 'role' | 'status', value: string, signal: AbortSignal): Promise<Member> {
+  // I due payload separano ruolo e stato, evitando riattivazioni da dati obsoleti.
+  const response = await authenticatedFetch(`${base(org)}/members/${encodeURIComponent(user)}/${kind}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [kind]: value }), signal,
+  });
+  if (!response.ok) {
+    const messages: Record<number, string> = {
+      400: 'Ruolo o stato non valido. Ricarica il team.',
+      403: 'Non hai i permessi per modificare questo membro.',
+      404: 'L’organizzazione o il membro non è più disponibile.',
+      409: 'Modifica non consentita: deve restare un OWNER attivo, non puoi sospendere te stesso e ruolo o riattivazione richiedono un account attivo. Ricarica il team per verificarne lo stato.',
+    };
+    throw new TeamError(response.status, messages[response.status] || 'Modifica non confermata. Ricarica il team prima di riprovare.');
+  }
+  return response.json();
+}

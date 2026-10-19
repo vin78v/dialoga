@@ -18,6 +18,7 @@ export function OrganizationPanel({ userId, onExpired }: { userId: string; onExp
   const [slugEdited, setSlugEdited] = useState(false);
   const [error, setError] = useState<{ message: string; slug?: boolean } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [projectVersion, setProjectVersion] = useState(0);
   const [retry, setRetry] = useState(0);
   const inFlight = useRef(false);
   const submission = useRef<AbortController | null>(null);
@@ -36,7 +37,7 @@ export function OrganizationPanel({ userId, onExpired }: { userId: string; onExp
   }, []);
 
   useEffect(() => {
-    if (!organizationId) { setState({ kind: 'form' }); return; }
+    if (!organizationId) { setState(current => current.kind === 'form' ? current : { kind: 'form' }); return; }
     const controller = new AbortController();
     setState({ kind: 'loading' });
     getOrganization(organizationId, controller.signal).then(organization => {
@@ -50,6 +51,9 @@ export function OrganizationPanel({ userId, onExpired }: { userId: string; onExp
       if (error instanceof OrganizationError && error.status === 404) {
         try { sessionStorage.removeItem('dialoga:requested-organization'); } catch { /* Optional storage. */ }
         rememberOrganization(userId, null);
+        // Dopo una sospensione il link alla stessa organizzazione deve poter
+        // avviare una nuova lettura quando il membro viene riattivato.
+        setOrganizationId(null);
         window.history.replaceState(null, '', window.location.pathname + window.location.search);
         setState({ kind: 'form', notice: 'L’organizzazione non è disponibile o non hai più accesso. Puoi crearne una nuova.' });
       } else setState({ kind: 'error', message: 'Non è stato possibile caricare l’organizzazione. Riprova tra poco.' });
@@ -91,8 +95,13 @@ export function OrganizationPanel({ userId, onExpired }: { userId: string; onExp
     <p className="eyebrow">IL TUO SPAZIO È PRONTO</p>
     <h3 id="organization-title">{state.organization.name}</h3>
     <dl className="organization-details"><dt>Indirizzo</dt><dd>{state.organization.slug}</dd><dt>Il tuo ruolo</dt><dd><span className="status-pill">{state.organization.role}</span></dd></dl>
-    <ProjectsPanel key={state.organization.id} organization={state.organization} onExpired={onExpired} />
-    <MembersPanel key={state.organization.id + ":team"} organization={state.organization} onExpired={onExpired} />
+    <ProjectsPanel key={state.organization.id + ":" + projectVersion} organization={state.organization} onExpired={onExpired} />
+    <MembersPanel key={state.organization.id + ":team"} organization={state.organization} currentUserId={userId} onExpired={onExpired} onChanged={member => {
+      // Un cambio del proprio ruolo deve rimuovere subito i vecchi controlli.
+      // Per gli altri membri basta invalidare le assegnazioni mostrate nei progetti.
+      if (member.userId === userId) setRetry(n => n + 1);
+      else setProjectVersion(n => n + 1);
+    }} />
     <a className="organization-link" href={`#organization=${state.organization.id}`}>Apri questa organizzazione <span aria-hidden="true">→</span></a>
   </section>;
   return <section className="organization-panel" aria-labelledby="organization-title">

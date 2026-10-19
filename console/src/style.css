@@ -402,3 +402,5 @@ h2 {
 
 .project-actions { margin-top: 24px; padding-top: 24px; border-top: 1px solid #e1e6dc; }
 .project-actions h6 { margin: 0 0 16px; font-size: 1rem; }
+
+.member-change { padding: 16px; border: 1px solid #e1d4bf; border-radius: 8px; background: #fbf8f1; }

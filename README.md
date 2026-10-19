@@ -31,7 +31,7 @@ mvn spring-boot:run
 
 ## Limiti attuali
 
-Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione, modifica e archiviazione dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; non include ancora modifica o sospensione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
+Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione, modifica e archiviazione dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; include cambio ruolo, sospensione e riattivazione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
 
 ## Riferimenti
 
@@ -143,7 +143,7 @@ V5 fissa il `search_path` dei trigger di membership e vincolo OWNER, mantenendo 
 
 ### Test PostgreSQL dell’onboarding e dei progetti e dei progetti
 
-`mvn verify` esegue i test unitari; i 50 test PostgreSQL (5 organizzazioni, 17 progetti, 16 team/inviti e 12 assegnazioni ai progetti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
+`mvn verify` esegue i test unitari; i 63 test PostgreSQL (5 organizzazioni, 17 progetti, 29 team/inviti e 12 assegnazioni ai progetti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
 
 ```sh
 docker compose exec -T db createdb -U dialoga_migration dialoga_onboarding_test
@@ -193,7 +193,7 @@ La risposta contiene `id`, `organizationId`, `name`, `slug`, `description` e `st
 
 Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. I progetti archiviati non sono elencati né aperti da queste API.
 
-Questa versione include elenco, creazione, dettaglio, modifica e archiviazione, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 64 test senza skip; senza database esegue 14 test e salta le 50 prove PostgreSQL.
+Questa versione include elenco, creazione, dettaglio, modifica e archiviazione, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 78 test senza skip; senza database esegue 15 test e salta le 63 prove PostgreSQL.
 
 
 ## Membri e inviti
@@ -217,7 +217,7 @@ Il link usa il fragment della console: `/#organization=<uuid>&invite=<uuid>&toke
 
 L’accettazione è esplicita, transazionale e serializzata con la revoca. Controlla organizzazione e account attivi, token, scadenza, email verificata e permessi attuali dell’autore dell’invito. Crea una sola membership e registra il consumo nello stesso commit. Un retry dello stesso account dopo un successo è idempotente e restituisce soltanto una membership ancora attiva, senza ripristinare ruoli o stati. Altre identità, anche con la stessa email, non possono riutilizzare un invito consumato. Token invalidi o risorse di un’altra organizzazione producono `404`; inviti scaduti/revocati/non più utilizzabili producono `410`.
 
-Nel realm di sviluppo la registrazione pubblica è disabilitata: il destinatario deve già avere un account Keycloak con email verificata. Non sono inclusi servizio email, registrazione pubblica, modifica/sospensione dei membri dell’organizzazione. Le risposte contenenti dati del team e token usano `Cache-Control: no-store`. Le prove aggiuntive coprono anche doppia accettazione, revoca concorrente, email non verificata, autorizzazioni dell’autore revocate e rollback atomico.
+Nel realm di sviluppo la registrazione pubblica è disabilitata: il destinatario deve già avere un account Keycloak con email verificata. Non sono inclusi servizio email o registrazione pubblica. Ruoli e sospensioni dei membri si gestiscono dalla sezione team. Le risposte contenenti dati del team e token usano `Cache-Control: no-store`. Le prove aggiuntive coprono anche doppia accettazione, revoca concorrente, email non verificata, autorizzazioni dell’autore revocate e rollback atomico.
 
 
 ## Accessi dei membri ai progetti
@@ -251,3 +251,21 @@ Nel dettaglio, OWNER e ADMIN possono usare **Modifica progetto** per aggiornare 
 Il backend verifica account, membership e organizzazione attivi, ruolo amministrativo e appartenenza del progetto al tenant. Input non validi producono 400; un MEMBER attivo senza privilegi amministrativi riceve 403; risorse mancanti, inattive o di altre organizzazioni producono 404. Le operazioni sono transazionali, con RLS e lock coerenti con la gestione degli accessi. Modifiche concorrenti ai metadati seguono l’ordine di esecuzione: l’ultima modifica riuscita prevale. Non servono nuove migrazioni, dipendenze o servizi.
 
 Sette prove PostgreSQL aggiuntive verificano normalizzazione e slug stabile, permessi, isolamento, attori inattivi, conservazione dei dati, revoca dell’accesso tramite archiviazione, idempotenza, rollback e concorrenza. Un test unitario aggiuntivo verifica la validazione prima dell’accesso al database. La console aggiunge otto prove browser con API simulate; una verifica separata con Keycloak, API e database reali controlla modifica persistente dopo reload, archiviazione, isolamento e risposte 400/401/404.
+
+
+## Ruoli, sospensione e riattivazione dei membri
+
+In **Membri e inviti**, un OWNER può cambiare il ruolo di un membro attivo tra MEMBER, ADMIN e OWNER e sospendere o riattivare altri membri. Un ADMIN può soltanto sospendere o riattivare MEMBER. I MEMBER non amministrano il team. Il backend verifica ogni operazione nel database: i ruoli mostrati dalla console o contenuti nel JWT non assegnano autorizzazioni.
+
+| Metodo | Percorso | Payload e risultato |
+|---|---|---|
+| PUT | `/api/organizations/{org}/members/{user}/role` | `{"role":"ADMIN"}`; solo OWNER; restituisce il membro aggiornato con 200 e no-store |
+| PUT | `/api/organizations/{org}/members/{user}/status` | `{"status":"SUSPENDED"}` oppure `{"status":"ACTIVE"}`; restituisce il membro aggiornato con 200 e no-store |
+
+Ruolo e stato hanno endpoint distinti, così un cambio di ruolo non riattiva una membership sospesa. Cambiare ruolo richiede membership e account attivi. La riattivazione richiede un account globale attivo e non può riabilitare un account disabilitato. Nessuno può sospendere sé stesso. Un OWNER può ridurre il proprio ruolo soltanto dopo aver nominato un altro OWNER attivo con account attivo: il lock dell’organizzazione serializza richieste concorrenti, mentre il vincolo PostgreSQL resta attivo come ulteriore protezione. Input non validi producono 400, permessi insufficienti 403, risorse fuori tenant o non accessibili 404 e operazioni incompatibili con questi vincoli 409.
+
+Un effettivo cambio di ruolo o una sospensione cancella i grant espliciti dell’utente nell’organizzazione e nei suoi progetti, sospende le assegnazioni ai progetti e revoca gli inviti pendenti emessi dalla persona. La pulizia e la modifica della membership sono atomiche e limitate all’organizzazione indicata. Ripetere ruolo o stato già correnti è idempotente e conserva eventuali nuovi permessi; riattivare non ripristina grant, assegnazioni o inviti revocati. OWNER/ADMIN attivi mantengono l’accesso implicito a tutti i progetti previsto dalla policy. Le altre organizzazioni e l’account/sessione Keycloak restano indipendenti.
+
+La console richiede conferma e mostra gli effetti prima dell’invio. Dopo il successo rilegge team e accessi; dopo un cambio del proprio ruolo ricarica l’organizzazione e rimuove i vecchi controlli. Un membro riattivato può riaprire il link della stessa organizzazione dopo un precedente rifiuto d’accesso. Non sono incluse cancellazione dei membri o modifica del profilo personale. Non servono migrazioni, servizi o dipendenze aggiuntive.
+
+Tredici prove PostgreSQL aggiuntive coprono matrice dei ruoli, tenant, account inattivi, ultimo OWNER utilizzabile, sospensione, idempotenza, pulizia dei tre tipi di grant, revoca degli inviti, rollback e concorrenza tra OWNER. Un test unitario aggiuntivo verifica ruoli/stati invalidi prima del database. Undici test browser usano API simulate per coprire conferme, doppi invii, permessi, conflitti, retry, cambio del proprio ruolo, account inattivi, scadenza della sessione e rientro dopo riattivazione; una prova separata usa due account reali con Keycloak e PostgreSQL. I dati temporanei vengono ripuliti.

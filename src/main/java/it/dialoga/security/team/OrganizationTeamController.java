@@ -21,6 +21,18 @@ public class OrganizationTeamController {
     public ResponseEntity<List<OrganizationTeamService.Member>> members(@AuthenticationPrincipal DialogaUser actor, @PathVariable UUID organizationId) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(team.members(actor, organizationId));
     }
+    // Endpoint separati: un cambio di ruolo non può riattivare per errore una
+    // membership sospesa usando uno stato rimasto nella schermata del client.
+    @PutMapping("/members/{userId}/role")
+    public ResponseEntity<OrganizationTeamService.Member> changeRole(@AuthenticationPrincipal DialogaUser actor,
+            @PathVariable UUID organizationId, @PathVariable UUID userId, @RequestBody ChangeRole request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(team.changeRole(actor, organizationId, userId, request.role()));
+    }
+    @PutMapping("/members/{userId}/status")
+    public ResponseEntity<OrganizationTeamService.Member> changeStatus(@AuthenticationPrincipal DialogaUser actor,
+            @PathVariable UUID organizationId, @PathVariable UUID userId, @RequestBody ChangeStatus request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(team.changeStatus(actor, organizationId, userId, request.status()));
+    }
     @GetMapping("/invites")
     public ResponseEntity<List<OrganizationTeamService.Invite>> invites(@AuthenticationPrincipal DialogaUser actor, @PathVariable UUID organizationId) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(team.invites(actor, organizationId));
@@ -50,6 +62,8 @@ public class OrganizationTeamController {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(team.accept(actor, organizationId, inviteId, request.token(),
                 jwt.getClaimAsString("email"), Boolean.TRUE.equals(jwt.getClaimAsBoolean("email_verified"))));
     }
+    public record ChangeRole(String role) { }
+    public record ChangeStatus(String status) { }
     public record CreateInvite(String email, String role) { }
     public record AcceptInvite(String token) { }
 }

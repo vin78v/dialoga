@@ -48,6 +48,82 @@ public class OrganizationTeamService {
                         rs.getString("role"), rs.getString("status"), rs.getString("user_status")), org, org, actor.id());
     }
 
+    @Transactional
+    public Member changeRole(DialogaUser actor, UUID org, UUID user, String role) {
+        if (!Set.of("OWNER", "ADMIN", "MEMBER").contains(role == null ? "" : role)) throw error(HttpStatus.BAD_REQUEST, "Invalid organization role");
+        String managerRole = requireManager(actor, org, true);
+        // Un ADMIN non può promuovere sé stesso né modificare altri amministratori.
+        if (!"OWNER".equals(managerRole)) throw error(HttpStatus.FORBIDDEN, "Only an owner can change organization roles");
+        var target = lockedMember(org, user);
+        if (!"ACTIVE".equals(target.status()) || !"ACTIVE".equals(target.userStatus())) {
+            throw error(HttpStatus.CONFLICT, "An active member and account are required");
+        }
+        if (role.equals(target.role())) return target;
+        protectLastOwner(org, target);
+        resetPrivileges(org, user);
+        jdbc.update("UPDATE dialoga.organization_membership SET role = ? WHERE organization_id = ? AND user_id = ?", role, org, user);
+        return lockedMember(org, user);
+    }
+
+    @Transactional
+    public Member changeStatus(DialogaUser actor, UUID org, UUID user, String status) {
+        if (!Set.of("ACTIVE", "SUSPENDED").contains(status == null ? "" : status)) throw error(HttpStatus.BAD_REQUEST, "Invalid membership status");
+        String managerRole = requireManager(actor, org, true);
+        var target = lockedMember(org, user);
+        if ("ADMIN".equals(managerRole) && !"MEMBER".equals(target.role())) {
+            throw error(HttpStatus.FORBIDDEN, "Admins can manage only regular members");
+        }
+        if ("SUSPENDED".equals(status) && actor.id().equals(user)) throw error(HttpStatus.CONFLICT, "Self suspension is not allowed");
+        // La membership non può riattivare l'account globale di una persona.
+        if ("ACTIVE".equals(status) && !"ACTIVE".equals(target.userStatus())) throw error(HttpStatus.CONFLICT, "Account unavailable");
+        if (status.equals(target.status())) return target;
+        if ("SUSPENDED".equals(status)) {
+            protectLastOwner(org, target);
+            resetPrivileges(org, user);
+        }
+        // Riattivare cambia soltanto lo stato: non ripristina progetti, grant o inviti.
+        jdbc.update("UPDATE dialoga.organization_membership SET status = ? WHERE organization_id = ? AND user_id = ?", status, org, user);
+        return lockedMember(org, user);
+    }
+
+    private Member lockedMember(UUID org, UUID user) {
+        var rows = jdbc.query("""
+                SELECT m.id, m.user_id, u.email, u.first_name, u.last_name, m.role, m.status, u.status AS user_status
+                FROM dialoga.organization_membership m JOIN dialoga.app_user u ON u.id = m.user_id
+                WHERE m.organization_id = ? AND m.user_id = ? FOR UPDATE OF m FOR SHARE OF u
+                """, (rs, row) -> new Member(rs.getObject("id", UUID.class), rs.getObject("user_id", UUID.class),
+                rs.getString("email"), rs.getString("first_name"), rs.getString("last_name"), rs.getString("role"),
+                rs.getString("status"), rs.getString("user_status")), org, user);
+        if (rows.isEmpty()) throw error(HttpStatus.NOT_FOUND, "Organization member not found");
+        return rows.get(0);
+    }
+
+    private void protectLastOwner(UUID org, Member target) {
+        if (!"OWNER".equals(target.role()) || !"ACTIVE".equals(target.status())) return;
+        // Il lock dell'organizzazione serializza i cambi di membership. Blocchiamo
+        // anche gli account degli altri OWNER per mantenere valida la verifica.
+        var alternatives = jdbc.queryForList("""
+                SELECT u.id FROM dialoga.organization_membership m JOIN dialoga.app_user u ON u.id = m.user_id
+                WHERE m.organization_id = ? AND m.role = 'OWNER' AND m.status = 'ACTIVE'
+                  AND u.status = 'ACTIVE' AND m.user_id <> ? FOR SHARE OF u
+                """, UUID.class, org, target.userId());
+        if (alternatives.isEmpty()) throw error(HttpStatus.CONFLICT, "The last active owner cannot be removed");
+    }
+
+    private void resetPrivileges(UUID org, UUID user) {
+        // La sospensione e il cambio di ruolo non devono lasciare diritti dormienti
+        // che tornerebbero validi dopo una riattivazione o una futura promozione.
+        // Tutte le pulizie restano nello stesso tenant e nella stessa transazione.
+        jdbc.update("""
+                DELETE FROM dialoga.project_permission WHERE organization_id = ? AND project_membership_id IN
+                (SELECT id FROM dialoga.project_membership WHERE organization_id = ? AND user_id = ?)
+                """, org, org, user);
+        jdbc.update("DELETE FROM dialoga.project_user_permission WHERE organization_id = ? AND user_id = ?", org, user);
+        jdbc.update("DELETE FROM dialoga.organization_permission WHERE organization_id = ? AND user_id = ?", org, user);
+        jdbc.update("UPDATE dialoga.project_membership SET status = 'SUSPENDED' WHERE organization_id = ? AND user_id = ? AND status = 'ACTIVE'", org, user);
+        jdbc.update("UPDATE dialoga.organization_invite SET status = 'REVOKED' WHERE organization_id = ? AND invited_by_user_id = ? AND status = 'PENDING'", org, user);
+    }
+
     @Transactional(readOnly = true)
     public List<Invite> invites(DialogaUser actor, UUID org) {
         requireManager(actor, org, false);

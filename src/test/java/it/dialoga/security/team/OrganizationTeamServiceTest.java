@@ -21,4 +21,14 @@ class OrganizationTeamServiceTest {
         }
         verifyNoInteractions(jdbc);
     }
+    @Test void invalidMembershipChangesDoNotReachDatabase() {
+        var jdbc = mock(JdbcTemplate.class); var service = new OrganizationTeamService(jdbc);
+        var actor = new DialogaUser(UUID.randomUUID(), "actor@example.test", null, null);
+        for (String role : new String[] {null, "", "manager", "VIEWER"}) assertEquals(400,
+                assertThrows(ResponseStatusException.class, () -> service.changeRole(actor, UUID.randomUUID(), UUID.randomUUID(), role)).getStatusCode().value());
+        for (String state : new String[] {null, "", "active", "DELETED"}) assertEquals(400,
+                assertThrows(ResponseStatusException.class, () -> service.changeStatus(actor, UUID.randomUUID(), UUID.randomUUID(), state)).getStatusCode().value());
+        verifyNoInteractions(jdbc);
+    }
+
 }
