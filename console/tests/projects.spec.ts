@@ -31,7 +31,7 @@ test('owner creates once, reads detail, reloads and returns to list', async ({ p
   let reads = 0;
   await page.route(`${base}/${projectId}`, route => { reads++; return route.fulfill({ json: project }); });
   await login(page);
-  await expect(page.getByText('Nessun progetto per ora.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Nessun progetto attivo.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Nuovo progetto' }).click();
   await page.getByLabel('Nome del progetto', { exact: true }).fill(project.name);
   await expect(page.getByLabel('Indirizzo del progetto', { exact: true })).toHaveValue(project.slug);

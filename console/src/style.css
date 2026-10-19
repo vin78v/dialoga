@@ -378,8 +378,8 @@ h2 {
 .project-form textarea { resize: vertical; width: 100%; border: 1px solid #cbd3c7; border-radius: 8px; padding: 12px; font: inherit; color: #183e36; background: #fff; }
 .project-form textarea:focus-visible { outline: 2px solid #315e4e; outline-offset: 2px; }
 .project-description { white-space: pre-wrap; overflow-wrap: anywhere; }
-.project-detail dt { font-size: 10px; color: #6a786e; margin-bottom: 6px; }
-.project-detail dd { margin: 0 0 18px; line-height: 1.7; overflow-wrap: anywhere; }
+.project-detail dt, .archived-list dt { font-size: 10px; color: #6a786e; margin-bottom: 6px; }
+.project-detail dd, .archived-list dd { margin: 0 0 18px; line-height: 1.7; overflow-wrap: anywhere; }
 .empty-projects { line-height: 1.8; color: #6a786e; }
 .members-panel { margin: 20px 0; }
 .members-panel h4 { font-size: 20px; font-weight: 500; margin: 24px 0 16px; }
@@ -404,3 +404,11 @@ h2 {
 .project-actions h6 { margin: 0 0 16px; font-size: 1rem; }
 
 .member-change { padding: 16px; border: 1px solid #e1d4bf; border-radius: 8px; background: #fbf8f1; }
+
+.archived-projects { margin-top: 24px; }
+.archived-list { list-style: none; padding: 0; }
+.archived-list > li { padding: 20px 0; border-bottom: 1px solid #e1e6dc; }
+.archived-list h6 { margin: 12px 0; font-size: 1rem; overflow-wrap: anywhere; }
+.restore-confirmation { padding: 16px; border: 1px solid #e1d4bf; border-radius: 8px; background: #fbf8f1; }
+
+.archived-projects h5 { font-size: 16px; font-weight: 500; margin: 22px 0 8px; }

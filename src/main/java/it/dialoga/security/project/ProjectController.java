@@ -5,6 +5,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.CacheControl;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +18,13 @@ public class ProjectController {
     @GetMapping
     public List<ProjectService.Project> list(@AuthenticationPrincipal DialogaUser actor, @PathVariable UUID organizationId) {
         return projects.list(actor, organizationId);
+    }
+
+    // Percorso esplicito per gli archivi: l'elenco ordinario rimane quello attivo.
+    @GetMapping("/archived")
+    public ResponseEntity<List<ProjectService.Project>> archived(@AuthenticationPrincipal DialogaUser actor,
+            @PathVariable UUID organizationId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(projects.listArchived(actor, organizationId));
     }
 
     @GetMapping("/{projectId}")
@@ -45,6 +53,12 @@ public class ProjectController {
             @PathVariable UUID organizationId, @PathVariable UUID projectId) {
         projects.archive(actor, organizationId, projectId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{projectId}/restore")
+    public ResponseEntity<ProjectService.Project> restore(@AuthenticationPrincipal DialogaUser actor,
+            @PathVariable UUID organizationId, @PathVariable UUID projectId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(projects.restore(actor, organizationId, projectId));
     }
 
     public record UpdateProject(String name, String description) { }

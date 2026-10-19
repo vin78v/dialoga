@@ -31,7 +31,7 @@ mvn spring-boot:run
 
 ## Limiti attuali
 
-Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione, modifica e archiviazione dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; include cambio ruolo, sospensione e riattivazione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
+Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione, modifica, archiviazione e ripristino dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; include cambio ruolo, sospensione e riattivazione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
 
 ## Riferimenti
 
@@ -143,7 +143,7 @@ V5 fissa il `search_path` dei trigger di membership e vincolo OWNER, mantenendo 
 
 ### Test PostgreSQL dell’onboarding e dei progetti e dei progetti
 
-`mvn verify` esegue i test unitari; i 63 test PostgreSQL (5 organizzazioni, 17 progetti, 29 team/inviti e 12 assegnazioni ai progetti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
+`mvn verify` esegue i test unitari; i 73 test PostgreSQL (5 organizzazioni, 17 progetti, 10 ripristino progetti, 29 team/inviti e 12 assegnazioni ai progetti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
 
 ```sh
 docker compose exec -T db createdb -U dialoga_migration dialoga_onboarding_test
@@ -191,9 +191,9 @@ Esempio corpo POST:
 
 La risposta contiene `id`, `organizationId`, `name`, `slug`, `description` e `status`. L’organizzazione viene sempre presa dal percorso e il ruolo è verificato nel database; né ruolo né ID forniti nel JSON assegnano autorizzazioni. OWNER/ADMIN accedono senza una membership progetto aggiuntiva. Gli altri membri devono avere una membership progetto ACTIVE, oltre a quella organizzazione e al proprio account attivi.
 
-Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. I progetti archiviati non sono elencati né aperti da queste API.
+Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. Le API ordinarie di elenco e dettaglio mostrano soltanto progetti attivi; gli archivi hanno un endpoint dedicato per OWNER/ADMIN.
 
-Questa versione include elenco, creazione, dettaglio, modifica e archiviazione, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 78 test senza skip; senza database esegue 15 test e salta le 63 prove PostgreSQL.
+Questa versione include elenco, creazione, dettaglio, modifica, archiviazione e ripristino, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 88 test senza skip; senza database esegue 15 test e salta le 73 prove PostgreSQL.
 
 
 ## Membri e inviti
@@ -246,7 +246,7 @@ Nel dettaglio, OWNER e ADMIN possono usare **Modifica progetto** per aggiornare 
 | PUT | `/api/organizations/{org}/projects/{project}` | JSON `{"name":"Nuovo nome","description":"Descrizione facoltativa"}`; restituisce il progetto aggiornato con 200 |
 | POST | `/api/organizations/{org}/projects/{project}/archive` | Senza payload; imposta ARCHIVED e restituisce 204, anche se già archiviato |
 
-**Archivia progetto** richiede una conferma nella console. I dati e le assegnazioni restano nel database; il progetto scompare dall’elenco e il dettaglio restituisce 404, anche per OWNER/ADMIN. La policy nega l’accesso anche ai membri già assegnati. Non sono inclusi elenco degli archivi, ripristino o cancellazione definitiva; lo slug resta riservato. Una modifica successiva all’archiviazione restituisce 404 e non può riattivare il progetto.
+**Archivia progetto** richiede una conferma nella console. I dati e le assegnazioni restano nel database; il progetto scompare dall’elenco e il dettaglio restituisce 404, anche per OWNER/ADMIN. La policy nega l’accesso anche ai membri già assegnati. OWNER/ADMIN possono consultare gli archivi e ripristinarli dalla sezione dedicata; la cancellazione definitiva non è inclusa e lo slug resta riservato. Una modifica successiva all’archiviazione restituisce 404 e non può riattivare il progetto.
 
 Il backend verifica account, membership e organizzazione attivi, ruolo amministrativo e appartenenza del progetto al tenant. Input non validi producono 400; un MEMBER attivo senza privilegi amministrativi riceve 403; risorse mancanti, inattive o di altre organizzazioni producono 404. Le operazioni sono transazionali, con RLS e lock coerenti con la gestione degli accessi. Modifiche concorrenti ai metadati seguono l’ordine di esecuzione: l’ultima modifica riuscita prevale. Non servono nuove migrazioni, dipendenze o servizi.
 
@@ -269,3 +269,19 @@ Un effettivo cambio di ruolo o una sospensione cancella i grant espliciti dell�
 La console richiede conferma e mostra gli effetti prima dell’invio. Dopo il successo rilegge team e accessi; dopo un cambio del proprio ruolo ricarica l’organizzazione e rimuove i vecchi controlli. Un membro riattivato può riaprire il link della stessa organizzazione dopo un precedente rifiuto d’accesso. Non sono incluse cancellazione dei membri o modifica del profilo personale. Non servono migrazioni, servizi o dipendenze aggiuntive.
 
 Tredici prove PostgreSQL aggiuntive coprono matrice dei ruoli, tenant, account inattivi, ultimo OWNER utilizzabile, sospensione, idempotenza, pulizia dei tre tipi di grant, revoca degli inviti, rollback e concorrenza tra OWNER. Un test unitario aggiuntivo verifica ruoli/stati invalidi prima del database. Undici test browser usano API simulate per coprire conferme, doppi invii, permessi, conflitti, retry, cambio del proprio ruolo, account inattivi, scadenza della sessione e rientro dopo riattivazione; una prova separata usa due account reali con Keycloak e PostgreSQL. I dati temporanei vengono ripuliti.
+
+
+## Elenco e ripristino dei progetti archiviati
+
+Nella sezione **Progetti archiviati**, OWNER e ADMIN possono consultare nome, indirizzo e descrizione dei progetti archiviati. L’elenco viene caricato soltanto all’apertura. Questi metadati non consentono di modificare il progetto o gestirne i membri finché rimane archiviato. Un MEMBER, anche MANAGER del progetto, non può consultare l’archivio né ripristinarlo.
+
+| Metodo | Percorso | Comportamento |
+|---|---|---|
+| GET | `/api/organizations/{org}/projects/archived` | Elenco dei soli ARCHIVED, ordinati per ultimo aggiornamento e ID; solo OWNER/ADMIN |
+| POST | `/api/organizations/{org}/projects/{project}/restore` | Senza payload; imposta ACTIVE e restituisce il progetto con 200; idempotente se già attivo |
+
+**Ripristina progetto** richiede conferma. Il ripristino conserva ID, slug, nome e descrizione e riapre il progetto con le assegnazioni e i grant ancora validi. Non riattiva membership sospese, account o organizzazioni inattive e non ricrea grant cancellati. In particolare, i cambi ruolo e le sospensioni organizzative eseguiti durante l’archiviazione continuano a revocare gli accessi secondo le regole del team. Un membro ancora attivo e assegnato ritrova invece l’accesso previsto dalla policy dopo il ripristino.
+
+Le verifiche amministrative usano ruoli correnti nel database. La query dell’elenco ripete il controllo di ruolo e stati nella lettura finale; il ripristino usa lo stesso lock dell’organizzazione delle altre mutazioni, con RLS e transazione atomica. Un MEMBER riceve 403; organizzazioni/account/membership non accessibili e progetti mancanti o fuori tenant producono 404; richieste anonime ricevono 401. Entrambe le nuove risposte usano `Cache-Control: no-store`. Il dettaglio ordinario di un ARCHIVED continua a restituire 404 fino al ripristino. Richieste concorrenti di archiviazione e ripristino vengono serializzate; l’ultima operazione eseguita determina lo stato finale. Non servono migrazioni, dipendenze o servizi aggiuntivi.
+
+Dieci nuove prove PostgreSQL verificano elenco separato, permessi OWNER/ADMIN, isolamento, inattività, identità dei dati, idempotenza, mantenimento dei grant validi, revoche e cambi ruolo durante l’archiviazione, rollback e concorrenza. Dieci nuovi test browser simulano le API per verificare caricamento su richiesta, conferme, annullamento, invio singolo, dati aggiornati, ruoli, errori, sessione scaduta e risposte tardive dopo navigazione. Una prova separata con due account, Keycloak e PostgreSQL reali verifica il ripristino con accessi validi e il mancato recupero dei diritti revocati durante l’archiviazione, oltre ai layout desktop/mobile. I dati temporanei sono stati eliminati.

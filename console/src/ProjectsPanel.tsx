@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SessionExpired } from './auth';
+import { ArchivedProjectsPanel } from './ArchivedProjectsPanel';
 import { ProjectActions } from './ProjectActions';
 import { ProjectMembersPanel } from './ProjectMembersPanel';
 import { suggestedSlug, type Organization } from './organizations';
@@ -138,8 +139,13 @@ export function ProjectsPanel({ organization, onExpired }: { organization: Organ
         {formError && <p id="project-error" className="notice" role="alert">{formError.message}</p>}
         <button className="primary" type="submit" disabled={submitting}>{submitting ? 'Creazione progetto in corso…' : 'Crea progetto'}</button>
         <button className="secondary" type="button" disabled={submitting} onClick={() => setCreating(false)}>Annulla</button>
-      </form> : projects.length === 0 ? <p className="empty-projects">{canCreate ? 'Nessun progetto per ora. Crea il primo spazio per le tue conversazioni.' : 'Non hai ancora progetti assegnati.'}</p> : <ul className="project-list">{projects.map(project => <li key={project.id}><button onClick={() => open(project.id)}><strong>{project.name}</strong><span>{project.slug}</span><span aria-hidden="true">→</span></button></li>)}</ul>}
+      </form> : projects.length === 0 ? <p className="empty-projects">{canCreate ? 'Nessun progetto attivo. Puoi crearne uno o consultare gli archiviati.' : 'Non hai ancora progetti assegnati.'}</p> : <ul className="project-list">{projects.map(project => <li key={project.id}><button onClick={() => open(project.id)}><strong>{project.name}</strong><span>{project.slug}</span><span aria-hidden="true">→</span></button></li>)}</ul>}
       <button className="text-button" disabled={submitting} onClick={() => { setCreating(false); setListAttempt(n => n + 1); }}>Aggiorna elenco</button>
+      {!creating && canCreate && <ArchivedProjectsPanel organizationId={organization.id} revision={listAttempt} onExpired={onExpired} onRestored={project => {
+        // Il dettaglio viene riletto dal backend; invalidare la lista evita schede
+        // obsolete anche se una lettura precedente era ancora in corso.
+        setListAttempt(n => n + 1); open(project.id); setNotice('Progetto ripristinato.');
+      }} />}
     </>}
   </section>;
 }

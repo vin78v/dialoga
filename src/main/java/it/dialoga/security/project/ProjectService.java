@@ -38,6 +38,27 @@ public class ProjectService {
     }
 
     @Transactional(readOnly = true)
+    public List<Project> listArchived(DialogaUser actor, UUID organizationId) {
+        String role = requireOrganization(actor, organizationId, false);
+        if (!"OWNER".equals(role) && !"ADMIN".equals(role)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Organization owner or admin required");
+        }
+        // Il controllo amministrativo viene ripetuto nella lettura finale: una
+        // demozione concorrente al precontrollo non autorizza a vedere gli archivi.
+        return jdbc.query("""
+                SELECT p.id, p.organization_id, p.name, p.slug, p.description, p.status
+                FROM dialoga.project p
+                JOIN dialoga.organization o ON o.id = p.organization_id
+                JOIN dialoga.organization_membership om ON om.organization_id = o.id
+                JOIN dialoga.app_user u ON u.id = om.user_id
+                WHERE p.organization_id = ? AND p.status = 'ARCHIVED'
+                  AND om.user_id = ? AND om.role IN ('OWNER', 'ADMIN') AND om.status = 'ACTIVE'
+                  AND o.status = 'ACTIVE' AND u.status = 'ACTIVE'
+                ORDER BY p.updated_at DESC, p.id
+                """, this::map, organizationId, actor.id());
+    }
+
+    @Transactional(readOnly = true)
     public Project get(DialogaUser actor, UUID organizationId, UUID projectId) {
         requireOrganization(actor, organizationId, false);
         List<Project> rows = jdbc.query(VISIBLE_PROJECTS + " AND p.id = ?", this::map,
@@ -104,6 +125,21 @@ public class ProjectService {
                 WHERE organization_id = ? AND id = ? AND status IN ('ACTIVE', 'ARCHIVED')
                 """, organizationId, projectId);
         if (matched == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
+    }
+
+    @Transactional
+    public Project restore(DialogaUser actor, UUID organizationId, UUID projectId) {
+        requireAdministrator(actor, organizationId);
+        // Il ripristino riapre il progetto senza ricreare grant o riattivare
+        // membership. Revoche, sospensioni e cambi di ruolo già applicati restano
+        // validi. Anche il retry su un progetto già attivo restituisce lo stesso ID.
+        var rows = jdbc.query("""
+                UPDATE dialoga.project SET status = 'ACTIVE'
+                WHERE organization_id = ? AND id = ? AND status IN ('ARCHIVED', 'ACTIVE')
+                RETURNING id, organization_id, name, slug, description, status
+                """, this::map, organizationId, projectId);
+        if (rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found");
+        return rows.get(0);
     }
 
     private void requireAdministrator(DialogaUser actor, UUID organizationId) {

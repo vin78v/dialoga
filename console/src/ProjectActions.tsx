@@ -62,7 +62,7 @@ export function ProjectActions({ project, onUpdated, onArchived, onUnavailable, 
     </form> : !confirmArchive && <button className="secondary" disabled={busy} onClick={() => { setName(project.name); setDescription(project.description || ''); setEditing(true); setError(null); setNotice(null); }}>Modifica progetto</button>}
     {confirmArchive ? <div className="remove-access">
       <p>Archiviare <strong>{project.name}</strong>?</p>
-      <p className="field-help">I dati saranno conservati, ma il progetto scomparirà dall’elenco e non sarà più accessibile ai membri. Il ripristino non è disponibile in questa versione.</p>
+      <p className="field-help">I dati saranno conservati, ma il progetto scomparirà dall’elenco e non sarà più accessibile ai membri. Potrai ripristinarlo dalla sezione Progetti archiviati.</p>
       <button className="secondary" disabled={busy} onClick={() => void mutate(true)}>{busy ? 'Archiviazione in corso…' : 'Conferma archiviazione'}</button>
       <button className="text-button" disabled={busy} onClick={() => { setConfirmArchive(false); setError(null); }}>Annulla archiviazione</button>
     </div> : !editing && <button className="text-button" disabled={busy} onClick={() => { setConfirmArchive(true); setError(null); setNotice(null); }}>Archivia progetto</button>}

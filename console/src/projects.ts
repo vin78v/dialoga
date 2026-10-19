@@ -53,3 +53,23 @@ function mutationError(status: number): ProjectError {
   };
   return new ProjectError(status, messages[status] || 'Operazione non confermata. Ricarica il progetto per verificarne lo stato prima di riprovare.');
 }
+
+export type ArchivedProject = Omit<Project, 'status'> & { status: 'ARCHIVED' };
+export async function listArchivedProjects(organizationId: string, signal: AbortSignal): Promise<ArchivedProject[]> {
+  const response = await authenticatedFetch(`${path(organizationId)}/archived`, { signal });
+  if (!response.ok) throw archivedError(response.status);
+  return response.json();
+}
+export async function restoreProject(organizationId: string, projectId: string, signal: AbortSignal): Promise<Project> {
+  // Nessun payload può scegliere ruoli, grant o membership da ricreare.
+  const response = await authenticatedFetch(`${path(organizationId)}/${encodeURIComponent(projectId)}/restore`, { method: 'POST', signal });
+  if (!response.ok) throw archivedError(response.status);
+  return response.json();
+}
+function archivedError(status: number): ProjectError {
+  const messages: Record<number, string> = {
+    403: 'Solo il proprietario o un amministratore può consultare e ripristinare gli archiviati.',
+    404: 'L’organizzazione o il progetto non è disponibile o non è accessibile.',
+  };
+  return new ProjectError(status, messages[status] || 'Operazione non confermata. Aggiorna gli archiviati per verificarne lo stato prima di riprovare.');
+}

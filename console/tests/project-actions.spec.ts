@@ -57,7 +57,7 @@ test('archive requires confirmation, can be cancelled and removes project after 
   await page.route(`${base}/${projectId}/archive`, route => { writes++; archived = true; return route.fulfill({ status: 204 }); });
   await login(page);
   await page.getByRole('button', { name: 'Archivia progetto', exact: true }).click();
-  await expect(page.getByText('Il ripristino non è disponibile', { exact: false })).toBeVisible();
+  await expect(page.getByText('Potrai ripristinarlo dalla sezione Progetti archiviati.', { exact: false })).toBeVisible();
   expect(writes).toBe(0);
   await page.getByRole('button', { name: 'Annulla archiviazione' }).click(); expect(writes).toBe(0);
   await page.getByRole('button', { name: 'Archivia progetto', exact: true }).click();
