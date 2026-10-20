@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { SessionExpired } from './auth';
 import { ArchivedProjectsPanel } from './ArchivedProjectsPanel';
+import { AssistantsPanel } from './AssistantsPanel';
 import { ProjectActions } from './ProjectActions';
 import { ProjectMembersPanel } from './ProjectMembersPanel';
 import { suggestedSlug, type Organization } from './organizations';
@@ -127,6 +128,7 @@ export function ProjectsPanel({ organization, onExpired }: { organization: Organ
             setDetail(null); back(); setListAttempt(n => n + 1); setNotice('Progetto archiviato. I dati sono stati conservati.');
           }}
           onUnavailable={message => { setDetail(null); setDetailError(message); setListAttempt(n => n + 1); }} />}
+        <AssistantsPanel key={detail.id + ':assistants'} organizationId={organization.id} projectId={detail.id} onExpired={onExpired} />
         <ProjectMembersPanel key={detail.id} organization={organization} projectId={detail.id} onExpired={onExpired} />
       </article> : <p role="status">Caricamento del progetto…</p>}
     </> : listError ? <><p className="notice" role="alert">{listError}</p><button className="secondary" onClick={() => setListAttempt(n => n + 1)}>Ricarica progetti</button></> : projects === null ? <p role="status">Caricamento dei progetti…</p> : <>

@@ -31,7 +31,7 @@ mvn spring-boot:run
 
 ## Limiti attuali
 
-Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione, modifica, archiviazione e ripristino dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; include cambio ruolo, sospensione e riattivazione dei membri. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
+Questo è un nucleo di sicurezza, non l'applicazione SaaS completa. L’onboarding crea un’organizzazione e la membership OWNER su richiesta autenticata. La console web include login, logout, profilo e creazione dell’organizzazione; include elenco, creazione, modifica, archiviazione e ripristino dei progetti; include elenco dei membri, inviti con accettazione e gestione degli accessi ai progetti; include cambio ruolo, sospensione e riattivazione dei membri; include creazione, elenco, dettaglio e modifica degli assistenti in bozza. I test includono la matrice di autorizzazione e prove PostgreSQL opzionali per l’onboarding; queste ultime richiedono un database dedicato. Build, test e richieste HTTP con Keycloak sono stati verificati nell’ambiente cloud con JDK 21 e Maven. Non pubblicare il servizio finché issuer, audience, CORS, database runtime e realm non sono configurati per l'ambiente previsto.
 
 ## Riferimenti
 
@@ -143,7 +143,7 @@ V5 fissa il `search_path` dei trigger di membership e vincolo OWNER, mantenendo 
 
 ### Test PostgreSQL dell’onboarding e dei progetti e dei progetti
 
-`mvn verify` esegue i test unitari; i 73 test PostgreSQL (5 organizzazioni, 17 progetti, 10 ripristino progetti, 29 team/inviti e 12 assegnazioni ai progetti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
+`mvn verify` esegue i test unitari; gli 85 test PostgreSQL (5 organizzazioni, 17 progetti, 10 ripristino progetti, 29 team/inviti, 12 assegnazioni ai progetti e 12 assistenti) vengono saltati se `DIALOGA_TEST_DB_URL` non è impostata. Per eseguirli, preparare un **database di test dedicato**, con V1, V3, V4, V5 e grant DML per un ruolo runtime senza superuser/BYPASSRLS. Esempio con il database Compose già avviato e il ruolo `dialoga_app` già creato:
 
 ```sh
 docker compose exec -T db createdb -U dialoga_migration dialoga_onboarding_test
@@ -193,7 +193,7 @@ La risposta contiene `id`, `organizationId`, `name`, `slug`, `description` e `st
 
 Dati non validi producono `400`; autenticazione mancante/non valida `401`; un membro regolare che tenta di creare un progetto riceve `403`. Organizzazioni e progetti inesistenti o non accessibili producono `404`, anche se l’ID del progetto esiste in un’altra organizzazione. Slug duplicati nella stessa organizzazione producono `409`; lo stesso slug è consentito in organizzazioni differenti. Uno slug rimane riservato anche se il relativo progetto è archiviato. Le API ordinarie di elenco e dettaglio mostrano soltanto progetti attivi; gli archivi hanno un endpoint dedicato per OWNER/ADMIN.
 
-Questa versione include elenco, creazione, dettaglio, modifica, archiviazione e ripristino, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 88 test senza skip; senza database esegue 15 test e salta le 73 prove PostgreSQL.
+Questa versione include elenco, creazione, dettaglio, modifica, archiviazione e ripristino, con refresh dell’elenco, gestione degli errori e collegamenti `/#organization=<uuid>&project=<uuid>`. Gli accessi dei membri si gestiscono dal dettaglio del progetto. Non serve una nuova migrazione: vengono usate le tabelle esistenti, mantenendo V3 RLS e V5 attive. `mvn verify` con il database di test configurato esegue 102 test senza skip; senza database esegue 17 test e salta le 85 prove PostgreSQL.
 
 
 ## Membri e inviti
@@ -285,3 +285,27 @@ Nella sezione **Progetti archiviati**, OWNER e ADMIN possono consultare nome, in
 Le verifiche amministrative usano ruoli correnti nel database. La query dell’elenco ripete il controllo di ruolo e stati nella lettura finale; il ripristino usa lo stesso lock dell’organizzazione delle altre mutazioni, con RLS e transazione atomica. Un MEMBER riceve 403; organizzazioni/account/membership non accessibili e progetti mancanti o fuori tenant producono 404; richieste anonime ricevono 401. Entrambe le nuove risposte usano `Cache-Control: no-store`. Il dettaglio ordinario di un ARCHIVED continua a restituire 404 fino al ripristino. Richieste concorrenti di archiviazione e ripristino vengono serializzate; l’ultima operazione eseguita determina lo stato finale. Non servono migrazioni, dipendenze o servizi aggiuntivi.
 
 Dieci nuove prove PostgreSQL verificano elenco separato, permessi OWNER/ADMIN, isolamento, inattività, identità dei dati, idempotenza, mantenimento dei grant validi, revoche e cambi ruolo durante l’archiviazione, rollback e concorrenza. Dieci nuovi test browser simulano le API per verificare caricamento su richiesta, conferme, annullamento, invio singolo, dati aggiornati, ruoli, errori, sessione scaduta e risposte tardive dopo navigazione. Una prova separata con due account, Keycloak e PostgreSQL reali verifica il ripristino con accessi validi e il mancato recupero dei diritti revocati durante l’archiviazione, oltre ai layout desktop/mobile. I dati temporanei sono stati eliminati.
+
+
+## Assistenti in bozza
+
+Nel dettaglio di un progetto attivo, **Assistenti** carica l’elenco e permette di creare, leggere e modificare configurazioni reali salvate in PostgreSQL. Questa funzionalità prepara le bozze; pubblicazione, esecuzione in chat, collegamento a provider AI e ingestione delle fonti non sono ancora inclusi. La console indica esplicitamente che una bozza non è pubblicata e non risponde in chat.
+
+Il nome richiede 1–160 caratteri e le istruzioni 1–12000 caratteri dopo la pulizia degli spazi alle estremità. Il messaggio iniziale è facoltativo, con massimo 1000 caratteri prima della pulizia; un valore vuoto diventa null. Il server genera ID e `public_id` e imposta sempre stato DRAFT e `draftLockVersion=0`. Il payload non espone tenant, stato, versioni pubblicate o grant. I nomi possono ripetersi: gli assistenti si identificano tramite UUID.
+
+| Metodo | Percorso | Comportamento |
+|---|---|---|
+| GET | `/api/organizations/{org}/projects/{project}/assistants` | Restituisce `{canEdit, items}` con riepiloghi e capacità effettiva di creazione |
+| POST | `/api/organizations/{org}/projects/{project}/assistants` | JSON `{name, instructions, welcomeMessage}`; crea DRAFT, restituisce 201, Location e dettaglio |
+| GET | `/api/organizations/{org}/projects/{project}/assistants/{assistant}` | Dettaglio con istruzioni, messaggio iniziale, versione e `canEdit` |
+| PUT | `/api/organizations/{org}/projects/{project}/assistants/{assistant}` | JSON `{name, instructions, welcomeMessage, expectedVersion}`; aggiorna una DRAFT e incrementa la versione, restituisce 200 |
+
+Tutti i membri attivi assegnati al progetto possono consultare le bozze. La policy esistente `EDIT_CONFIGURATION` abilita scrittura per OWNER/ADMIN dell’organizzazione e MANAGER/EDITOR del progetto; OPERATOR e VIEWER hanno sola lettura. Un grant `ASSISTANT_PUBLISH` non concede permessi di modifica. Le capacità restituite governano i controlli della console, mentre il backend verifica ogni richiesta. Eventuali assistenti PUBLISHED o SUSPENDED già presenti sono leggibili e non modificabili da questa schermata.
+
+Le letture ricontrollano l’accesso nella query finale; le scritture bloccano l’organizzazione prima di verificare progetto, account e membership, secondo l’ordine già usato dagli altri servizi. RLS e tutti gli identificativi del percorso delimitano le query. Input invalidi producono 400, scrittura senza privilegi 403, risorse mancanti/fuori tenant o accessi inattivi 404. Le nuove risposte usano `Cache-Control: no-store`. Progetti archiviati non espongono assistenti finché non vengono ripristinati.
+
+La versione attesa appartiene al testo aperto in modifica. Il salvataggio condizionato sulla versione evita sovrascritture concorrenti; una versione superata o uno stato non più DRAFT produce 409 senza alterare i dati. La console conserva i campi e offre **Ricarica e scarta modifiche** per rileggere esplicitamente la versione corrente. Anche chiudere e riaprire il pannello non sostituisce la versione associata al testo locale. L’aggiornamento modifica soltanto nome e le chiavi `instructions`/`welcomeMessage` di `draft_config`, preservando le altre configurazioni.
+
+La creazione non viene ripetuta automaticamente dopo un esito ambiguo: aggiornare l’elenco prima di riprovare, poiché la bozza potrebbe già esistere. La selezione dell’assistente resta nella pagina corrente; al reload si riapre il progetto e si può selezionare nuovamente l’assistente. Non sono inclusi cancellazione, pubblicazione o sospensione degli assistenti. Non servono migrazioni, dipendenze, credenziali AI o servizi aggiuntivi.
+
+Dodici nuove prove PostgreSQL coprono ruoli/capacità, isolamento, revoche e stati inattivi, grant, normalizzazione, dati gestiti dal server, configurazioni preservate, conflitti, rollback e salvataggi concorrenti. Due test unitari verificano la validazione prima del database. Tredici test browser con API simulate coprono caricamento su richiesta, creazione e modifica senza doppi invii, capability, conflitti e rientro nel pannello, validazione, errori, sessione scaduta e recupero dopo esiti ambigui. Una prova separata con due account e servizi reali verifica persistenza, modifiche concorrenti, sola lettura dopo cambio ruolo e revoca, oltre al layout desktop/mobile. Tutte le fixture temporanee sono state eliminate.
